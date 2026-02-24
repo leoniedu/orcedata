@@ -1,0 +1,25 @@
+Package: orcedata
+Title: IBGE Reference Data for Statistical Collection Network Optimization
+Version: 0.0.0.9000
+Authors@R:
+    person("Eduardo", "Leoni", , "eduardo.leoni@ibge.gov.br", role = c("aut", "cre"),
+           comment = c(ORCID = "YOUR-ORCID-ID"))
+Description: Reference datasets and IBGE-specific utility functions used by the orce package.
+    Includes agency locations, municipality boundaries, distance matrices, and daily
+    allowance data for Brazilian statistical data collection networks.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+LazyData: true
+Depends:
+    R (>= 3.5)
+Imports:
+    dplyr,
+    janitor,
+    rlang,
+    sf,
+    tidyselect
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
