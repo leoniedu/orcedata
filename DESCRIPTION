@@ -23,6 +23,7 @@ Imports:
     sf,
     tidyselect
 Suggests:
+    igraph,
     osrm,
     osrm.backend,
     testthat (>= 3.0.0)
