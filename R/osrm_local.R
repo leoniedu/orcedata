@@ -50,6 +50,9 @@ osrm_local_start <- function(region_pbf,
   # Resolve PBF path
   pbf_path <- resolve_pbf_path(region_pbf, force_download = force_download)
 
+  # Estimate resource usage from PBF file size
+  warn_resource_usage(pbf_path)
+
   # Start server (handles install + graph prep + server start)
   cli::cli_inform("Starting OSRM server from {.file {pbf_path}}...")
   osrm.backend::osrm_start(
@@ -107,6 +110,25 @@ resolve_pbf_path <- function(region_pbf, force_download = FALSE) {
   cli::cli_inform("Download complete.")
 
   cached_path
+}
+
+#' Warn about estimated resource usage based on PBF file size
+#'
+#' @param pbf_path Path to the PBF file.
+#' @noRd
+warn_resource_usage <- function(pbf_path) {
+  pbf_mb <- file.size(pbf_path) / 1024^2
+  if (is.na(pbf_mb)) return(invisible(NULL))
+
+  # Graph files are ~3x PBF size; server memory is ~2x PBF size
+  disk_gb <- round(pbf_mb * 3 / 1024, 1)
+  mem_gb <- round(pbf_mb * 2 / 1024, 1)
+
+  cli::cli_inform(c(
+    "i" = "PBF file size: {round(pbf_mb)} MB",
+    "i" = "Estimated disk for graph preparation: ~{disk_gb} GB",
+    "i" = "Estimated server memory usage: ~{mem_gb} GB"
+  ))
 }
 
 #' Stop the Local OSRM Server
