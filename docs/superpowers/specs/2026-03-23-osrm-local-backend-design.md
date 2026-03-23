@@ -10,21 +10,26 @@ The existing `data-raw/distancias_agencias_osrm.R` relies on a remote/default OS
 
 Three exported functions for managing a local OSRM server:
 
-#### `osrm_local_start(region_pbf_url, profile = "car")`
+#### `osrm_local_start(region_pbf_url, profile = "car", max_table_size = 10000L)`
 
-1. **Download PBF**: Checks `rappdirs::user_cache_dir("orcedata")` for the file (keyed by filename extracted from URL). Downloads via `utils::download.file()` if missing.
-2. **Install OSRM binaries**: Calls `osrm.backend::osrm_install()` if `osrm.backend::osrm_which()` returns nothing. Uses `rlang::check_installed("osrm.backend")` to give a clear error if the package isn't installed.
-3. **Prepare graph in tempdir**: Copies the cached PBF to a tempdir, runs `osrm.backend::osrm_extract()` then `osrm.backend::osrm_contract()` with the given profile.
-4. **Start server**: Calls `osrm.backend::osrm_start()`, configures the `osrm` package to point at `http://localhost:5000` via `options(osrm.server = "http://localhost:5000/")`.
-5. **No auto-cleanup**: Server stays running until explicitly stopped.
+1. **Check for running server**: If a local OSRM server is already running, warn and return early (invisible server info).
+2. **Save current `osrm.server` option**: Store the current value so `osrm_local_stop()` can restore it.
+3. **Download PBF**: Checks `rappdirs::user_cache_dir("orcedata")` for the file (keyed by filename extracted from URL). Downloads via `utils::download.file()` if missing.
+4. **Start server via `osrm.backend::osrm_start()`**: This high-level function handles OSRM binary installation, graph extraction, preparation, and server start in one call. Pass the cached PBF path directly (no copy needed). Pass `max_table_size` to allow large distance matrices.
+5. **Configure `osrm` package**: Set `options(osrm.server = "http://localhost:5001/")` (5001 is the `osrm.backend` default port).
+6. **No auto-cleanup**: Server stays running until explicitly stopped.
+
+Uses `rlang::check_installed("osrm.backend")` to give a clear error if the package isn't installed.
+
+Returns the server URL invisibly.
 
 #### `osrm_local_stop()`
 
-Stops all running OSRM servers via `osrm.backend::osrm_stop_all()`.
+Stops all running OSRM servers via `osrm.backend::osrm_stop_all()`. Restores the previous `osrm.server` option that was saved by `osrm_local_start()`.
 
 #### `osrm_local_status()`
 
-Checks if a local server is running (via `osrm.backend::osrm_servers()` or HTTP ping to localhost:5000). Returns `TRUE`/`FALSE` with an informative message.
+Checks if a local server is running via `osrm.backend::osrm_servers()`. Returns `TRUE`/`FALSE` with an informative cli message.
 
 ### Component 2: Revised `data-raw/distancias_agencias_osrm.R`
 
@@ -46,8 +51,13 @@ Replaces the current script. Structure:
 ## Decisions
 
 - PBF cached in `rappdirs::user_cache_dir("orcedata")` — survives across sessions
-- Processed graph data (extract/contract output) goes in tempdir — ephemeral, reprocessed each run
+- Graph preparation happens in tempdir via `osrm_start()` — ephemeral, reprocessed each run
+- Use `osrm.backend::osrm_start()` (high-level) instead of manual extract/contract pipeline — it handles install, extract, prepare, and server start
+- Default port is 5001 (osrm.backend default)
+- `max_table_size` defaults to 10000 to support large UF distance matrices
 - Server is not auto-cleaned; user calls `osrm_local_stop()` explicitly
+- `osrm_local_stop()` restores the previous `osrm.server` option
+- `osrm_local_start()` warns and returns early if a server is already running
 - All three functions are exported with roxygen docs
 - This is the first migration; `distancias_agencias_municipios_osrm.R` and `distancias_agencias_upas_osrm.R` will follow the same pattern later
 
