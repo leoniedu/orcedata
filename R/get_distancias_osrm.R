@@ -11,6 +11,8 @@
 #'   portion). Default: `2`. This converts the snap distance to additional
 #'   travel time. A low value penalizes locations far from roads.
 #' @param chunk_size Number of origins per OSRM request. Default: `100L`.
+#' @param preencher_na If `TRUE`, fill unroutable pairs with Euclidean
+#'   distance at `kmh_snap` speed. If `FALSE` (default), preserve `NA`s.
 #'
 #' @return A `data.frame` with columns from `src` and `dst` (dropped geometry),
 #'   plus:
@@ -39,7 +41,8 @@
 #' @export
 get_distancias_osrm <- function(src, dst = NULL,
                                 kmh_snap = 2,
-                                chunk_size = 100L) {
+                                chunk_size = 100L,
+                                preencher_na = FALSE) {
   rlang::check_installed("osrm", reason = "to compute distances via OSRM")
 
   if (!inherits(src, "sf")) {
@@ -117,9 +120,12 @@ get_distancias_osrm <- function(src, dst = NULL,
     res$road_hours + (res$snap_km_orig + res$snap_km_dest) / kmh_snap, 2
   )
 
-  # Step 4: Fill NA (unroutable) pairs with Euclidean distance at kmh_snap
+  # Add metodo column (must be before road_km is dropped in select)
+  res$metodo <- ifelse(is.na(res$road_km), NA_character_, "osrm")
+
+  # Step 4: Handle NA (unroutable) pairs
   na_rows <- is.na(res$distancia_km)
-  if (any(na_rows)) {
+  if (any(na_rows) && preencher_na) {
     eucl_m <- sf::st_distance(
       src_1[res$.id_orig[na_rows], ],
       dst_1[res$.id_dest[na_rows], ],
@@ -130,9 +136,14 @@ get_distancias_osrm <- function(src, dst = NULL,
     res$duracao_horas[na_rows] <- round(eucl_km / kmh_snap, 2)
     res$snap_km_orig[na_rows] <- 0
     res$snap_km_dest[na_rows] <- 0
+    res$metodo[na_rows] <- "euclidiano"
 
     cli::cli_warn(
       "{sum(na_rows)} unroutable pair{?s} filled with Euclidean distance at {kmh_snap} km/h."
+    )
+  } else if (any(na_rows)) {
+    cli::cli_inform(
+      "{sum(na_rows)} unroutable pair{?s} preserved as NA. Use {.fn completar_distancias} to complete."
     )
   }
 
@@ -145,7 +156,12 @@ get_distancias_osrm <- function(src, dst = NULL,
   res <- res |>
     dplyr::left_join(src_attrs, by = ".id_orig") |>
     dplyr::left_join(dst_attrs, by = ".id_dest") |>
-    dplyr::select(-".id_orig", -".id_dest", -"road_km", -"road_hours")
+    dplyr::select(-"road_km", -"road_hours")
+
+  # Attach snap info for completar_distancias()
+  attr(res, "snap_src") <- snap_src_result$pontos
+  attr(res, "snap_dst") <- snap_dst_result$pontos
+  attr(res, "kmh_snap") <- kmh_snap
 
   res
 }

@@ -4,7 +4,13 @@
 \alias{get_distancias_osrm}
 \title{Compute OSRM Distance Matrix with Snap Correction}
 \usage{
-get_distancias_osrm(src, dst = NULL, kmh_snap = 2, chunk_size = 100L)
+get_distancias_osrm(
+  src,
+  dst = NULL,
+  kmh_snap = 2,
+  chunk_size = 100L,
+  preencher_na = FALSE
+)
 }
 \arguments{
 \item{src}{An \code{sf} POINT object with origin points.}
@@ -17,6 +23,9 @@ portion). Default: \code{2}. This converts the snap distance to additional
 travel time. A low value penalizes locations far from roads.}
 
 \item{chunk_size}{Number of origins per OSRM request. Default: \code{100L}.}
+
+\item{preencher_na}{If \code{TRUE}, fill unroutable pairs with Euclidean
+distance at \code{kmh_snap} speed. If \code{FALSE} (default), preserve \code{NA}s.}
 }
 \value{
 A \code{data.frame} with columns from \code{src} and \code{dst} (dropped geometry),
