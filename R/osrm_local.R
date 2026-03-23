@@ -103,8 +103,7 @@ resolve_pbf_path <- function(region_pbf, force_download = FALSE) {
   old_timeout <- getOption("timeout")
   on.exit(options(timeout = old_timeout), add = TRUE)
   options(timeout = 3600)
-  utils::download.file(url, cached_path, mode = "wb",
-                       method = "curl", extra = "-C -")
+  utils::download.file(url, cached_path, mode = "wb")
   cli::cli_inform("Download complete.")
 
   cached_path
