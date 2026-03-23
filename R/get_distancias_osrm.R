@@ -59,8 +59,8 @@ get_distancias_osrm <- function(src, dst = NULL,
 
   # Step 1: Snap all unique points
   cli::cli_inform("Snapping {nrow(src)} origins and {nrow(dst)} destinations...")
-  snap_src <- snap_points(src)
-  snap_dst <- if (symmetric) snap_src else snap_points(dst)
+  snap_src_result <- snap_points(src)
+  snap_dst_result <- if (symmetric) snap_src_result else snap_points(dst)
 
   # Step 2: Compute osrmTable in chunks
   src_1 <- src |>
@@ -107,8 +107,8 @@ get_distancias_osrm <- function(src, dst = NULL,
   res <- dplyr::bind_rows(results)
 
   # Step 3: Join snap distances and compute totals
-  res$snap_km_orig <- snap_src[res$.id_orig]
-  res$snap_km_dest <- snap_dst[res$.id_dest]
+  res$snap_km_orig <- snap_src_result$snap_km[res$.id_orig]
+  res$snap_km_dest <- snap_dst_result$snap_km[res$.id_dest]
 
   res$distancia_km <- round(
     res$road_km + res$snap_km_orig + res$snap_km_dest, 2
@@ -128,6 +128,8 @@ get_distancias_osrm <- function(src, dst = NULL,
     eucl_km <- as.numeric(eucl_m) / 1000
     res$distancia_km[na_rows] <- round(eucl_km, 2)
     res$duracao_horas[na_rows] <- round(eucl_km / kmh_snap, 2)
+    res$snap_km_orig[na_rows] <- 0
+    res$snap_km_dest[na_rows] <- 0
 
     cli::cli_warn(
       "{sum(na_rows)} unroutable pair{?s} filled with Euclidean distance at {kmh_snap} km/h."
@@ -146,42 +148,4 @@ get_distancias_osrm <- function(src, dst = NULL,
     dplyr::select(-".id_orig", -".id_dest", -"road_km", -"road_hours")
 
   res
-}
-
-#' Snap points to the road network and return distances in km
-#'
-#' @param points An `sf` POINT object.
-#' @return A numeric vector of snap distances in km, one per row of `points`.
-#' @noRd
-snap_points <- function(points) {
-  n <- nrow(points)
-  snap_km <- numeric(n)
-
-  cli::cli_progress_bar("Snapping points", total = n)
-  for (i in seq_len(n)) {
-    snap_km[i] <- tryCatch({
-      nearest <- osrm::osrmNearest(points[i, ])
-      nearest$distance / 1000  # meters to km
-    }, error = function(e) {
-      NA_real_
-    })
-    cli::cli_progress_update()
-  }
-  cli::cli_progress_done()
-
-  n_far <- sum(snap_km > 1, na.rm = TRUE)
-  n_na <- sum(is.na(snap_km))
-
-  if (n_far > 0) {
-    cli::cli_warn(
-      "{n_far} point{?s} snapped more than 1 km from the road network."
-    )
-  }
-  if (n_na > 0) {
-    cli::cli_warn(
-      "{n_na} point{?s} could not be snapped (no nearby road found)."
-    )
-  }
-
-  snap_km
 }
