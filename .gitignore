@@ -5,3 +5,4 @@
 _extensions
 data-raw/*.rds
 data-raw/bdo_agencias/*.rds
+.letta/
