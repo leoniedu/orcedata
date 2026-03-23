@@ -54,7 +54,8 @@ osrm_local_start <- function(region_pbf,
   cli::cli_inform("Starting OSRM server from {.file {pbf_path}}...")
   osrm.backend::osrm_start(
     path = pbf_path,
-    max_table_size = max_table_size
+    max_table_size = max_table_size,
+    overwrite = TRUE
   )
 
   servers <- osrm.backend::osrm_servers()
