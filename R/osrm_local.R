@@ -39,8 +39,9 @@ osrm_local_start <- function(region_pbf,
   # Check for already-running server
   servers <- osrm.backend::osrm_servers()
   if (nrow(servers) > 0) {
-    cli::cli_warn("An OSRM server is already running. Use {.fn osrm_local_stop} to stop it first.")
     server_url <- paste0("http://localhost:", servers$port[1], "/")
+    options(osrm.server = server_url)
+    cli::cli_warn("An OSRM server is already running at {.url {server_url}}. Use {.fn osrm_local_stop} to stop it first.")
     return(invisible(server_url))
   }
 
