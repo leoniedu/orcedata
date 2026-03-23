@@ -78,6 +78,6 @@ rename_ibge <- function(x) {
       x <- gsub("longitude", "lon", x)
       gsub("latitude", "lat", x)
       }) |>
-    dplyr::mutate(across(dplyr::any_of(tidyselect::matches("_codigo|^upa$|^setor$")), as.character))
+    dplyr::mutate(dplyr::across(dplyr::any_of(tidyselect::matches("_codigo|^upa$|^setor$")), as.character))
   newx
 }
