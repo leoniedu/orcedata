@@ -32,6 +32,10 @@
 #' distance can be significant. The low default speed (2 km/h) reflects
 #' uncertainty about off-road travel conditions.
 #'
+#' When OSRM cannot route between a pair of points (returns `NA`), the
+#' Euclidean (great-circle) distance is used as a fallback, with duration
+#' computed at `kmh_snap` speed. A warning reports how many pairs were filled.
+#'
 #' @export
 get_distancias_osrm <- function(src, dst = NULL,
                                 kmh_snap = 2,
@@ -112,6 +116,23 @@ get_distancias_osrm <- function(src, dst = NULL,
   res$duracao_horas <- round(
     res$road_hours + (res$snap_km_orig + res$snap_km_dest) / kmh_snap, 2
   )
+
+  # Step 4: Fill NA (unroutable) pairs with Euclidean distance at kmh_snap
+  na_rows <- is.na(res$distancia_km)
+  if (any(na_rows)) {
+    eucl_m <- sf::st_distance(
+      src_1[res$.id_orig[na_rows], ],
+      dst_1[res$.id_dest[na_rows], ],
+      by_element = TRUE
+    )
+    eucl_km <- as.numeric(eucl_m) / 1000
+    res$distancia_km[na_rows] <- round(eucl_km, 2)
+    res$duracao_horas[na_rows] <- round(eucl_km / kmh_snap, 2)
+
+    cli::cli_warn(
+      "{sum(na_rows)} unroutable pair{?s} filled with Euclidean distance at {kmh_snap} km/h."
+    )
+  }
 
   # Join back source/destination attributes (drop geometry)
   src_attrs <- sf::st_drop_geometry(src_1)
