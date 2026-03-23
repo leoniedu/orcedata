@@ -43,4 +43,8 @@ travel time.
 For points far from roads (e.g., across a river, on an island), the snap
 distance can be significant. The low default speed (2 km/h) reflects
 uncertainty about off-road travel conditions.
+
+When OSRM cannot route between a pair of points (returns \code{NA}), the
+Euclidean (great-circle) distance is used as a fallback, with duration
+computed at \code{kmh_snap} speed. A warning reports how many pairs were filled.
 }

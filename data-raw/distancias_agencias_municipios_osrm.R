@@ -64,6 +64,19 @@ distancias_agencias_municipios_diaria_0 <- distancias_agencias_municipios_osrm%>
 agencias_municipios_diaria <- distancias_agencias_municipios_diaria_0%>%
   select(agencia_codigo,municipio_codigo, diaria_municipio)
 
+# Ensure all agencies in agencias_bdo have rows
+# Unroutable agencies default to diaria_municipio = TRUE (remote/inaccessible)
+missing_ag <- setdiff(agencias_bdo$agencia_codigo, unique(agencias_municipios_diaria$agencia_codigo))
+if (length(missing_ag) > 0) {
+  all_mun <- unique(agencias_municipios_diaria$municipio_codigo)
+  missing_rows <- tidyr::expand_grid(
+    agencia_codigo = missing_ag,
+    municipio_codigo = all_mun
+  ) |> mutate(diaria_municipio = TRUE)
+  agencias_municipios_diaria <- bind_rows(agencias_municipios_diaria, missing_rows)
+  message("Added ", length(missing_ag), " unroutable agencies to agencias_municipios_diaria: ",
+          paste(missing_ag, collapse = ", "))
+}
 
 load(here::here("data/pontos_municipios.rda"))
 a_m <- municipios_22%>%arrange(municipio_codigo)

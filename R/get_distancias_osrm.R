@@ -53,6 +53,8 @@ get_distancias_osrm <- function(src, dst = NULL,
     cli::cli_abort("{.arg dst} must be an {.cls sf} object.")
   }
 
+  old_outdec <- getOption("OutDec")
+  on.exit(options(OutDec = old_outdec), add = TRUE)
   options(OutDec = ".")
 
   # Step 1: Snap all unique points
@@ -89,10 +91,8 @@ get_distancias_osrm <- function(src, dst = NULL,
         road_km = round(as.vector(r$distances) / 1000, 2),
         road_hours = round(as.vector(r$durations) / 60, 2)
       )
-    }, error = function(e) {
-      n_failed <<- n_failed + 1L
-      NULL
-    })
+    }, error = function(e) NULL)
+    if (is.null(results[[i]])) n_failed <- n_failed + 1L
     cli::cli_progress_update()
   }
 
@@ -135,12 +135,14 @@ get_distancias_osrm <- function(src, dst = NULL,
   }
 
   # Join back source/destination attributes (drop geometry)
-  src_attrs <- sf::st_drop_geometry(src_1)
-  dst_attrs <- sf::st_drop_geometry(dst_1)
+  src_attrs <- sf::st_drop_geometry(src_1) |>
+    dplyr::rename_with(\(x) paste0(x, "_orig"), .cols = -".id_orig")
+  dst_attrs <- sf::st_drop_geometry(dst_1) |>
+    dplyr::rename_with(\(x) paste0(x, "_dest"), .cols = -".id_dest")
 
   res <- res |>
-    dplyr::left_join(src_attrs, by = ".id_orig", suffix = c("", "_orig")) |>
-    dplyr::left_join(dst_attrs, by = ".id_dest", suffix = c("_orig", "_dest")) |>
+    dplyr::left_join(src_attrs, by = ".id_orig") |>
+    dplyr::left_join(dst_attrs, by = ".id_dest") |>
     dplyr::select(-".id_orig", -".id_dest", -"road_km", -"road_hours")
 
   res
@@ -155,6 +157,7 @@ snap_points <- function(points) {
   n <- nrow(points)
   snap_km <- numeric(n)
 
+  cli::cli_progress_bar("Snapping points", total = n)
   for (i in seq_len(n)) {
     snap_km[i] <- tryCatch({
       nearest <- osrm::osrmNearest(points[i, ])
@@ -162,7 +165,9 @@ snap_points <- function(points) {
     }, error = function(e) {
       NA_real_
     })
+    cli::cli_progress_update()
   }
+  cli::cli_progress_done()
 
   n_far <- sum(snap_km > 1, na.rm = TRUE)
   n_na <- sum(is.na(snap_km))

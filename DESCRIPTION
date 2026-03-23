@@ -14,12 +14,13 @@ RoxygenNote: 7.3.3
 LazyData: true
 LazyDataCompression: xz
 Depends:
-    R (>= 3.5)
+    R (>= 4.1.0)
 Imports:
     cli,
     dplyr,
     janitor,
     rlang,
+    sf,
     tidyselect
 Suggests:
     osrm,
