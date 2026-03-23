@@ -10,12 +10,19 @@ The existing `data-raw/distancias_agencias_osrm.R` relies on a remote/default OS
 
 Three exported functions for managing a local OSRM server:
 
-#### `osrm_local_start(region_pbf_url, profile = "car", max_table_size = 10000L)`
+#### `osrm_local_start(region_pbf, profile = "car", max_table_size = 10000L, force_download = FALSE)`
+
+The `region_pbf` argument accepts flexible input:
+- **Full URL**: `"https://download.geofabrik.de/south-america/brazil/nordeste-latest.osm.pbf"` — used as-is
+- **Geofabrik path**: `"south-america/brazil/nordeste-latest.osm.pbf"` — prepends `https://download.geofabrik.de/`
+- **Local file path**: `"/path/to/nordeste-latest.osm.pbf"` — if the file exists on disk, skip download entirely
+
+Steps:
 
 1. **Check for running server**: If a local OSRM server is already running, warn and return early (invisible server info).
 2. **Save current `osrm.server` option**: Store the current value so `osrm_local_stop()` can restore it.
-3. **Download PBF**: Checks `rappdirs::user_cache_dir("orcedata")` for the file (keyed by filename extracted from URL). Downloads via `utils::download.file()` if missing.
-4. **Start server via `osrm.backend::osrm_start()`**: This high-level function handles OSRM binary installation, graph extraction, preparation, and server start in one call. Pass the cached PBF path directly (no copy needed). Pass `max_table_size` to allow large distance matrices.
+3. **Resolve PBF path**: If `region_pbf` is a local file that exists, use it directly. Otherwise, treat as URL (prepending Geofabrik base if needed). Check `tools::R_user_dir("orcedata", which = "cache")` for cached file (keyed by filename). Download via `utils::download.file()` if missing or if `force_download = TRUE`.
+4. **Start server via `osrm.backend::osrm_start()`**: This high-level function handles OSRM binary installation, graph extraction, preparation, and server start in one call. Pass the PBF path directly. Pass `max_table_size` to allow large distance matrices.
 5. **Configure `osrm` package**: Set `options(osrm.server = "http://localhost:5001/")` (5001 is the `osrm.backend` default port).
 6. **No auto-cleanup**: Server stays running until explicitly stopped.
 
@@ -44,13 +51,14 @@ Replaces the current script. Structure:
 
 ### Component 3: Dependencies
 
-- **`rappdirs`** added to `Imports` in DESCRIPTION (needed for PBF caching)
 - **`osrm.backend`** added to `Suggests` (only needed when running a local server; runtime check via `rlang::check_installed()`)
 - **`osrm`** added to `Suggests` (only needed when computing distances)
+- PBF caching uses `tools::R_user_dir()` (base R since 4.0) — no extra dependency needed
 
 ## Decisions
 
-- PBF cached in `rappdirs::user_cache_dir("orcedata")` — survives across sessions
+- PBF cached in `tools::R_user_dir("orcedata", which = "cache")` (base R, no extra dep) — survives across sessions
+- `region_pbf` accepts full URL, Geofabrik relative path, or local file path
 - Graph preparation happens in tempdir via `osrm_start()` — ephemeral, reprocessed each run
 - Use `osrm.backend::osrm_start()` (high-level) instead of manual extract/contract pipeline — it handles install, extract, prepare, and server start
 - Default port is 5001 (osrm.backend default)
