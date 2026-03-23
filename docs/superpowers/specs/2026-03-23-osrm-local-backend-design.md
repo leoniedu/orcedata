@@ -10,7 +10,7 @@ The existing `data-raw/distancias_agencias_osrm.R` relies on a remote/default OS
 
 Three exported functions for managing a local OSRM server:
 
-#### `osrm_local_start(region_pbf, profile = "car", max_table_size = 10000L, force_download = FALSE)`
+#### `osrm_local_start(region_pbf, max_table_size = 10000L, force_download = FALSE)`
 
 The `region_pbf` argument accepts flexible input:
 - **Full URL**: `"https://download.geofabrik.de/south-america/brazil/nordeste-latest.osm.pbf"` — used as-is
