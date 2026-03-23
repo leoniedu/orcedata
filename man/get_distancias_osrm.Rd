@@ -31,11 +31,20 @@ distance at \code{kmh_snap} speed. If \code{FALSE} (default), preserve \code{NA}
 A \code{data.frame} with columns from \code{src} and \code{dst} (dropped geometry),
 plus:
 \describe{
-\item{distancia_km}{Total distance: road + snap (origin + destination)}
-\item{duracao_horas}{Total duration: road + snap time at \code{kmh_snap}}
-\item{snap_km_orig}{Snap distance for origin point (km)}
-\item{snap_km_dest}{Snap distance for destination point (km)}
+\item{.id_orig}{Integer index of the origin point in \code{src}.}
+\item{.id_dest}{Integer index of the destination point in \code{dst}.}
+\item{distancia_km}{Total distance: road + snap (origin + destination).}
+\item{duracao_horas}{Total duration: road + snap time at \code{kmh_snap}.}
+\item{snap_km_orig}{Snap distance for origin point (km).}
+\item{snap_km_dest}{Snap distance for destination point (km).}
+\item{metodo}{\code{"osrm"} for OSRM-routed pairs, \code{"euclidiano"} for
+Euclidean-filled pairs (when \code{preencher_na = TRUE}), or \code{NA} for
+unroutable pairs (when \code{preencher_na = FALSE}).}
 }
+
+The returned data.frame carries three attributes used by
+\code{\link[=completar_distancias]{completar_distancias()}}: \code{"snap_src"} and \code{"snap_dst"} (snapped \code{sf}
+points) and \code{"kmh_snap"} (the speed used).
 }
 \description{
 Computes road distances and durations between points using OSRM, with
@@ -56,4 +65,7 @@ uncertainty about off-road travel conditions.
 When OSRM cannot route between a pair of points (returns \code{NA}), the
 Euclidean (great-circle) distance is used as a fallback, with duration
 computed at \code{kmh_snap} speed. A warning reports how many pairs were filled.
+}
+\seealso{
+\code{\link[=completar_distancias]{completar_distancias()}} to complete NA pairs via augmented graph.
 }

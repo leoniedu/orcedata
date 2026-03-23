@@ -17,11 +17,20 @@
 #' @return A `data.frame` with columns from `src` and `dst` (dropped geometry),
 #'   plus:
 #'   \describe{
-#'     \item{distancia_km}{Total distance: road + snap (origin + destination)}
-#'     \item{duracao_horas}{Total duration: road + snap time at `kmh_snap`}
-#'     \item{snap_km_orig}{Snap distance for origin point (km)}
-#'     \item{snap_km_dest}{Snap distance for destination point (km)}
+#'     \item{.id_orig}{Integer index of the origin point in `src`.}
+#'     \item{.id_dest}{Integer index of the destination point in `dst`.}
+#'     \item{distancia_km}{Total distance: road + snap (origin + destination).}
+#'     \item{duracao_horas}{Total duration: road + snap time at `kmh_snap`.}
+#'     \item{snap_km_orig}{Snap distance for origin point (km).}
+#'     \item{snap_km_dest}{Snap distance for destination point (km).}
+#'     \item{metodo}{`"osrm"` for OSRM-routed pairs, `"euclidiano"` for
+#'       Euclidean-filled pairs (when `preencher_na = TRUE`), or `NA` for
+#'       unroutable pairs (when `preencher_na = FALSE`).}
 #'   }
+#'
+#'   The returned data.frame carries three attributes used by
+#'   [completar_distancias()]: `"snap_src"` and `"snap_dst"` (snapped `sf`
+#'   points) and `"kmh_snap"` (the speed used).
 #'
 #' @details
 #' OSRM snaps input coordinates to the nearest point on the road network.
@@ -37,6 +46,8 @@
 #' When OSRM cannot route between a pair of points (returns `NA`), the
 #' Euclidean (great-circle) distance is used as a fallback, with duration
 #' computed at `kmh_snap` speed. A warning reports how many pairs were filled.
+#'
+#' @seealso [completar_distancias()] to complete NA pairs via augmented graph.
 #'
 #' @export
 get_distancias_osrm <- function(src, dst = NULL,
