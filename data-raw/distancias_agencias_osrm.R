@@ -14,9 +14,8 @@ for (ufnow in ufs) {
   ag_uf <- agencias_bdo |> filter(substr(agencia_codigo, 1, 2) == ufnow)
   res <- get_distancias_osrm(src = ag_uf)
   agencias_dist_list[[ufnow]] <- res |>
-    transmute(
-      agencia_codigo_orig = agencia_codigo.x,
-      agencia_codigo_dest = agencia_codigo.y,
+    select(
+      agencia_codigo_orig, agencia_codigo_dest,
       distancia_km, duracao_horas,
       snap_km_orig, snap_km_dest
     )

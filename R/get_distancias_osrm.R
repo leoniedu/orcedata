@@ -114,13 +114,12 @@ get_distancias_osrm <- function(src, dst = NULL,
   )
 
   # Join back source/destination attributes (drop geometry)
+  src_attrs <- sf::st_drop_geometry(src_1)
+  dst_attrs <- sf::st_drop_geometry(dst_1)
+
   res <- res |>
-    dplyr::left_join(
-      sf::st_drop_geometry(src_1), by = ".id_orig"
-    ) |>
-    dplyr::left_join(
-      sf::st_drop_geometry(dst_1), by = ".id_dest"
-    ) |>
+    dplyr::left_join(src_attrs, by = ".id_orig", suffix = c("", "_orig")) |>
+    dplyr::left_join(dst_attrs, by = ".id_dest", suffix = c("_orig", "_dest")) |>
     dplyr::select(-".id_orig", -".id_dest", -"road_km", -"road_hours")
 
   res
