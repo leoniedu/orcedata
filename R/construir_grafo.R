@@ -233,36 +233,52 @@ adicionar_pontes_componentes <- function(g, src, dst, snap_src, snap_dst,
 
   bridge_edges <- list()
 
-  for (comp_id in seq_len(comps$no)) {
-    nodes_in <- node_names[membership == comp_id]
-    nodes_out <- node_names[membership != comp_id]
-    if (length(nodes_out) == 0) next
+  # For each pair of components, connect each node in comp_a to its nearest
 
-    # Filter to nodes that have geometry in our lookup
-    nodes_in <- unname(intersect(nodes_in, names(node_geom)))
-    nodes_out <- unname(intersect(nodes_out, names(node_geom)))
-    if (length(nodes_in) == 0 || length(nodes_out) == 0) next
+  # node in comp_b. This guarantees full connectivity even when multiple
 
-    sf_in <- sf::st_sf(
-      id = nodes_in,
-      geometry = sf::st_sfc(unname(node_geom[nodes_in]), crs = 4326)
-    )
-    sf_out <- sf::st_sf(
-      id = nodes_out,
-      geometry = sf::st_sfc(unname(node_geom[nodes_out]), crs = 4326)
+  # small components are closer to each other than to the main component.
+  comp_ids <- seq_len(comps$no)
+  for (a in comp_ids) {
+    nodes_a <- unname(intersect(node_names[membership == a], names(node_geom)))
+    if (length(nodes_a) == 0) next
+
+    sf_a <- sf::st_sf(
+      id = nodes_a,
+      geometry = sf::st_sfc(unname(node_geom[nodes_a]), crs = 4326)
     )
 
-    dists <- sf::st_distance(sf_in, sf_out)
+    for (b in comp_ids) {
+      if (b <= a) next
+      nodes_b <- unname(intersect(node_names[membership == b], names(node_geom)))
+      if (length(nodes_b) == 0) next
 
-    for (i in seq_len(nrow(sf_in))) {
-      nearest_j <- which.min(dists[i, ])
-      eucl_km <- as.numeric(dists[i, nearest_j]) / 1000
-      bridge_edges[[length(bridge_edges) + 1]] <- data.frame(
-        from = nodes_in[i],
-        to = nodes_out[nearest_j],
-        weight = eucl_km / kmh_snap,
-        stringsAsFactors = FALSE
+      sf_b <- sf::st_sf(
+        id = nodes_b,
+        geometry = sf::st_sfc(unname(node_geom[nodes_b]), crs = 4326)
       )
+
+      dists <- sf::st_distance(sf_a, sf_b)
+
+      # From a → nearest in b
+      for (i in seq_len(nrow(sf_a))) {
+        nearest_j <- which.min(dists[i, ])
+        eucl_km <- as.numeric(dists[i, nearest_j]) / 1000
+        bridge_edges[[length(bridge_edges) + 1]] <- data.frame(
+          from = nodes_a[i], to = nodes_b[nearest_j],
+          weight = eucl_km / kmh_snap, stringsAsFactors = FALSE
+        )
+      }
+
+      # From b → nearest in a
+      for (j in seq_len(nrow(sf_b))) {
+        nearest_i <- which.min(dists[, j])
+        eucl_km <- as.numeric(dists[nearest_i, j]) / 1000
+        bridge_edges[[length(bridge_edges) + 1]] <- data.frame(
+          from = nodes_b[j], to = nodes_a[nearest_i],
+          weight = eucl_km / kmh_snap, stringsAsFactors = FALSE
+        )
+      }
     }
   }
 

@@ -9,7 +9,9 @@ get_distancias_osrm(
   dst = NULL,
   kmh_snap = 2,
   chunk_size = 5000L,
-  preencher_na = FALSE
+  preencher_na = FALSE,
+  completar = FALSE,
+  max_snap_h = 1
 )
 }
 \arguments{
@@ -25,7 +27,15 @@ travel time. A low value penalizes locations far from roads.}
 \item{chunk_size}{Number of origins per OSRM request. Default: \code{5000L}.}
 
 \item{preencher_na}{If \code{TRUE}, fill unroutable pairs with Euclidean
-distance at \code{kmh_snap} speed. If \code{FALSE} (default), preserve \code{NA}s.}
+distance at \code{kmh_snap} speed. If \code{FALSE} (default), preserve \code{NA}s.
+Ignored when \code{completar = TRUE}.}
+
+\item{completar}{If \code{TRUE}, automatically call \code{\link[=completar_distancias]{completar_distancias()}}
+on the result to complete NA pairs via augmented graph routing.
+Default: \code{FALSE}. Overrides \code{preencher_na}.}
+
+\item{max_snap_h}{Maximum snap duration (hours) passed to
+\code{\link[=completar_distancias]{completar_distancias()}}. Default: \code{1}. Only used when \code{completar = TRUE}.}
 }
 \value{
 A \code{data.frame} with columns from \code{src} and \code{dst} (dropped geometry),

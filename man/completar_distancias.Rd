@@ -38,10 +38,9 @@ Euclidean edges at \code{kmh_snap} speed. Points that snapped beyond
 \code{max_snap_h} hours are reclassified as unsnappable and connected via
 Euclidean edges to each other and to every road component.
 
-For graph-routed pairs, \code{distancia_km} is computed as
-\code{duracao_horas * kmh_snap} — a travel-time-equivalent distance, not
-actual road distance. The primary output for optimization is
-\code{duracao_horas}.
+For graph-routed pairs, \code{distancia_km} is the Euclidean (straight-line)
+distance between origin and destination, since the actual road distance
+is unknown. The primary output for optimization is \code{duracao_horas}.
 
 If snap attributes are not present on \code{dist_df} (e.g., from pre-computed
 results), the graph uses original point coordinates directly and assumes

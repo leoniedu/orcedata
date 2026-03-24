@@ -1,0 +1,271 @@
+---
+title: "Completando distâncias com o grafo aumentado"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 10,
+  fig.height = 7
+)
+```
+
+```{r setup, message = FALSE}
+library(orcedata)
+library(dplyr)
+library(sf)
+library(ggplot2)
+library(ggrepel)
+```
+
+## O problema
+
+O OSRM calcula distâncias rodoviárias entre pontos usando a rede viária do
+OpenStreetMap. Porém, nem todos os pares de pontos são roteáveis: municípios em
+ilhas fluviais, comunidades acessíveis apenas por rio, ou localidades em redes
+viárias desconectadas geram `NA` na matriz de distâncias.
+
+No Amazonas, por exemplo, muitas agências do IBGE estão em municípios
+acessíveis apenas por via fluvial, resultando em componentes desconectados na
+rede viária.
+
+## Etapa 1: distâncias OSRM
+
+A função `get_distancias_osrm()` consulta a API do OSRM e retorna distâncias e
+durações rodoviárias. Pares sem rota na rede viária ficam com `NA`.
+
+```{r osrm-distances, eval = FALSE}
+# Iniciar servidor OSRM local
+osrm_local_start("brazil-260323.osm.pbf")
+
+# Carregar agências do Amazonas
+load("data/agencias_bdo.rda")
+ag13 <- agencias_bdo |>
+  filter(substr(agencia_codigo, 1, 2) == "13")
+
+# Calcular distâncias (preencher_na = FALSE preserva NAs)
+dist13 <- get_distancias_osrm(src = ag13)
+
+# Completar com grafo aumentado
+dist13c <- completar_distancias(dist13, src = ag13)
+
+# Ou, equivalentemente, em uma única chamada:
+# dist13c <- get_distancias_osrm(src = ag13, completar = TRUE)
+
+# Salvar resultados para o artigo
+saveRDS(
+  list(before = dist13, after = dist13c, pts = ag13),
+  here::here("inst", "extdata", "uf13_results.rds")
+)
+```
+
+```{r load-cached, echo = FALSE}
+r <- readRDS(here::here("inst", "extdata", "uf13_results.rds"))
+dist13 <- r$before
+dist13c <- r$after
+ag13 <- r$pts
+```
+
+Para o Amazonas (UF 13), com `r nrow(ag13)` agências e
+`r nrow(ag13)^2` pares:
+
+```{r summary-before}
+cat("Pares roteados (OSRM):", sum(dist13$metodo == "osrm", na.rm = TRUE), "\n")
+cat("Pares NA (sem rota):  ", sum(is.na(dist13$distancia_km)), "\n")
+```
+
+## Etapa 2: identificando os componentes
+
+A rede viária do Amazonas tem componentes desconectados. Podemos visualizar
+quais agências pertencem a cada componente:
+
+```{r plot-components}
+# Identificar componentes pelo padrão de NAs
+method_mat <- matrix(NA_character_, nrow(ag13), nrow(ag13))
+for (i in seq_len(nrow(dist13))) {
+  method_mat[dist13$.id_orig[i], dist13$.id_dest[i]] <- dist13$metodo[i]
+}
+
+# Agências com NA para Manaus (índice 8) estão em componentes separados
+componente <- rep("Rede principal", nrow(ag13))
+for (i in seq_len(nrow(ag13))) {
+  if (is.na(method_mat[i, 8])) {
+    componente[i] <- ag13$agencia_nome[i]
+  }
+}
+ag13$componente <- componente
+
+coords <- st_coordinates(ag13)
+ag13_label <- cbind(st_drop_geometry(ag13), coords) |>
+  mutate(label = sub(" .*", "", agencia_nome))
+
+# Arestas NA (pares sem rota)
+na_pairs <- dist13 |>
+  filter(is.na(metodo), .id_orig < .id_dest) |>
+  mutate(
+    x = coords[.id_orig, 1], y = coords[.id_orig, 2],
+    xend = coords[.id_dest, 1], yend = coords[.id_dest, 2]
+  )
+
+ggplot() +
+  geom_segment(data = na_pairs,
+               aes(x = x, y = y, xend = xend, yend = yend),
+               color = "red", linewidth = 0.3, alpha = 0.3,
+               linetype = "dashed") +
+  geom_sf(data = ag13, aes(color = componente), size = 3) +
+  geom_text_repel(data = ag13_label, aes(x = X, y = Y, label = label),
+                  size = 2.5, max.overlaps = 20) +
+  scale_color_manual(values = c(
+    "Rede principal" = "forestgreen",
+    "EIRUNEPÉ" = "red",
+    "TABATINGA" = "orange",
+    "TEFÉ" = "steelblue"
+  )) +
+  labs(title = "Componentes desconectados na rede viária",
+       subtitle = "Linhas vermelhas = pares sem rota OSRM",
+       color = "Componente") +
+  theme_minimal()
+```
+
+Temos 4 componentes:
+
+| Componente | Agências | Descrição |
+|---|---|---|
+| **Rede principal** | 11 agências | Manaus, Careiro, Coari, Humaitá, Itacoatiara, Lábrea, Manacapuru, Parintins, São Gabriel da Cachoeira |
+| **Tefé** | 1 agência | Rede viária isolada |
+| **Eirunepé** | 1 agência | Rede viária isolada |
+| **Tabatinga** | 1 agência | Rede viária isolada |
+
+## Etapa 3: o grafo aumentado
+
+A função `completar_distancias()` constrói um **grafo aumentado** que conecta
+os componentes desconectados e computa caminhos mínimos para os pares NA.
+
+### Estrutura do grafo
+
+O grafo não-direcionado tem três tipos de aresta:
+
+1. **Arestas rodoviárias**: durações OSRM entre pares roteáveis. Para formar
+   um grafo não-direcionado, as durações A→B e B→A são promediadas.
+
+2. **Arestas de snap**: conectam cada ponto original ao ponto na rede viária
+   mais próximo (o "snap point" do OSRM), com peso = distância de snap /
+   `kmh_snap`.
+
+3. **Pontes entre componentes**: para cada par de componentes desconectados,
+   cada nó é conectado ao nó mais próximo no outro componente, usando distância
+   Euclidiana a `kmh_snap` km/h (padrão: 2 km/h).
+
+### Caminhos mínimos
+
+Para cada par NA, `igraph::distances()` encontra o caminho mínimo no grafo
+aumentado. O caminho típico para um par desconectado é:
+
+```
+ponto_A → snap_A → [rede viária] → snap_X → ponte_euclidiana → snap_Y → [rede viária] → snap_B → ponto_B
+```
+
+```{r summary-after}
+cat("Pares completados (grafo):", sum(dist13c$metodo == "grafo", na.rm = TRUE), "\n")
+cat("Pares NA restantes:       ", sum(is.na(dist13c$distancia_km)), "\n")
+```
+
+## Resultado
+
+```{r plot-completed}
+grafo_edges <- dist13c |>
+  filter(metodo == "grafo", .id_orig < .id_dest) |>
+  mutate(
+    x = coords[.id_orig, 1], y = coords[.id_orig, 2],
+    xend = coords[.id_dest, 1], yend = coords[.id_dest, 2]
+  )
+
+osrm_edges <- dist13c |>
+  filter(metodo == "osrm", .id_orig < .id_dest) |>
+  mutate(
+    x = coords[.id_orig, 1], y = coords[.id_orig, 2],
+    xend = coords[.id_dest, 1], yend = coords[.id_dest, 2]
+  )
+
+ggplot() +
+  geom_segment(data = osrm_edges,
+               aes(x = x, y = y, xend = xend, yend = yend),
+               color = "grey70", linewidth = 0.3, alpha = 0.4) +
+  geom_segment(data = grafo_edges,
+               aes(x = x, y = y, xend = xend, yend = yend),
+               color = "steelblue", linewidth = 0.5, alpha = 0.6,
+               linetype = "dashed") +
+  geom_sf(data = ag13, aes(color = componente), size = 3) +
+  geom_text_repel(data = ag13_label, aes(x = X, y = Y, label = label),
+                  size = 2.5, max.overlaps = 20) +
+  scale_color_manual(values = c(
+    "Rede principal" = "forestgreen",
+    "EIRUNEPÉ" = "red",
+    "TABATINGA" = "orange",
+    "TEFÉ" = "steelblue"
+  )) +
+  labs(title = "Grafo aumentado - todos os pares conectados",
+       subtitle = "Cinza = OSRM (rede viária) | Azul tracejado = grafo (Euclidiano)",
+       color = "Componente") +
+  theme_minimal()
+```
+
+### Tabela de distâncias completadas
+
+Para pares completados via grafo, `duracao_horas` é o caminho mínimo no
+grafo aumentado, combinando trechos rodoviários (velocidade real) com pontes
+Euclidianas (a `kmh_snap` = 2 km/h). Como a distância rodoviária real é
+desconhecida para esses pares, `distancia_km` é a distância Euclidiana
+entre origem e destino.
+
+```{r table}
+kmh <- attr(dist13, "kmh_snap") %||% 2
+
+dist13c |>
+  filter(metodo == "grafo", .id_orig < .id_dest) |>
+  mutate(
+    orig = ag13$agencia_nome[.id_orig],
+    dest = ag13$agencia_nome[.id_dest],
+    duracao_eucl = round(distancia_km / kmh, 1),
+    kmh_grafo = round(distancia_km / duracao_horas, 1)
+  ) |>
+  select(orig, dest, distancia_km, duracao_horas, duracao_eucl, kmh_grafo) |>
+  arrange(orig, dest) |>
+  knitr::kable(
+    col.names = c("Origem", "Destino", "Dist. Euclidiana (km)",
+                   "Duração grafo (h)", "Duração Euclidiana (h)",
+                   "km/h grafo"),
+    digits = 1
+  )
+```
+
+## Interpretação
+
+- **Tefé**: conecta-se à rede principal via Coari (192 km Euclidiano,
+  ~96 h a 2 km/h). Uma vez no componente principal, as distâncias rodoviárias
+  OSRM são utilizadas.
+
+- **Eirunepé e Tabatinga**: cada um em seu próprio componente. As distâncias
+  para a rede principal passam por arestas Euclidianas, resultando em durações
+  da ordem de centenas de horas.
+
+As durações elevadas são intencionais: a velocidade baixa (`kmh_snap = 2`)
+penaliza rotas que dependem de trechos sem estrada, refletindo a dificuldade
+real de acesso por rio ou avião na Amazônia.
+
+## Por que o grafo aumentado e não a distância Euclidiana?
+
+A alternativa simples — preencher NAs com distância Euclidiana a `kmh_snap` —
+trata todos os pares sem rota de forma igual: a duração depende apenas da
+distância em linha reta entre origem e destino.
+
+O grafo aumentado é mais informativo porque combina trechos rodoviários reais
+com pontes Euclidianas. A duração do caminho mínimo no grafo reflete a
+estrutura da rede viária: dois pontos no mesmo componente rodoviário mas
+desconectados de um terceiro terão durações diferentes para esse terceiro,
+proporcionais à posição de cada um na rede.
+
+Na otimização de redes de coleta, isso permite que o modelo diferencie
+agências isoladas conforme sua proximidade real à rede viária, em vez de
+tratá-las como igualmente inacessíveis.

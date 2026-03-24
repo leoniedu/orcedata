@@ -25,10 +25,9 @@
 #' `max_snap_h` hours are reclassified as unsnappable and connected via
 #' Euclidean edges to each other and to every road component.
 #'
-#' For graph-routed pairs, `distancia_km` is computed as
-#' `duracao_horas * kmh_snap` — a travel-time-equivalent distance, not
-#' actual road distance. The primary output for optimization is
-#' `duracao_horas`.
+#' For graph-routed pairs, `distancia_km` is the Euclidean (straight-line)
+#' distance between origin and destination, since the actual road distance
+#' is unknown. The primary output for optimization is `duracao_horas`.
 #'
 #' If snap attributes are not present on `dist_df` (e.g., from pre-computed
 #' results), the graph uses original point coordinates directly and assumes
@@ -150,6 +149,13 @@ completar_distancias <- function(dist_df, src, dst = NULL,
     g, v = unique_from, to = unique_to, mode = "all"
   )
 
+  # Compute Euclidean distances for NA pairs (used as distancia_km)
+  na_eucl_km <- as.numeric(sf::st_distance(
+    src[dist_df$.id_orig[na_rows], ],
+    dst[dist_df$.id_dest[na_rows], ],
+    by_element = TRUE
+  )) / 1000
+
   # Map back to dist_df rows
   na_indices <- which(na_rows)
   for (k in seq_along(na_indices)) {
@@ -160,7 +166,7 @@ completar_distancias <- function(dist_df, src, dst = NULL,
 
     if (is.finite(dur)) {
       dist_df$duracao_horas[i] <- round(dur, 4)
-      dist_df$distancia_km[i] <- round(dur * kmh_snap, 2)
+      dist_df$distancia_km[i] <- round(na_eucl_km[k], 2)
       dist_df$metodo[i] <- "grafo"
     } else {
       cli::cli_warn(

@@ -67,20 +67,38 @@ osrm_local_start <- function(region_pbf,
   server_url <- paste0("http://localhost:", servers$port[1], "/")
   options(osrm.server = server_url)
 
-  # Wait until server is actually accepting connections
+  # Wait until server is actually serving HTTP requests
+  # TCP socket may open before OSRM is ready (especially for large PBF files)
+  pbf_mb <- file.size(pbf_path) / 1024^2
+  max_wait <- max(60L, as.integer(pbf_mb / 5))  # ~1s per 5 MB, min 60s
+  cli::cli_inform("Waiting for OSRM server to become ready (up to {max_wait}s)...")
   ready <- FALSE
-  for (i in seq_len(30L)) {
+  pid <- servers$pid[1]
+  for (i in seq_len(max_wait)) {
+    # Check if server process is still alive
+    alive <- tryCatch(
+      { tools::pskill(pid, signal = 0L); TRUE },
+      error = function(e) FALSE
+    )
+    if (!alive) {
+      cli::cli_abort(c(
+        "OSRM server process died during startup.",
+        "i" = "PBF file: {round(pbf_mb)} MB (estimated ~{round(pbf_mb * 5 / 1024, 1)} GB memory).",
+        "i" = "The file may be too large for available system memory."
+      ))
+    }
     ready <- tryCatch({
-      con <- socketConnection("127.0.0.1", servers$port[1], open = "r",
-                              blocking = TRUE, timeout = 1)
-      close(con)
+      resp <- httr2::request(paste0(server_url, "table/v1/driving/0,0")) |>
+        httr2::req_timeout(2) |>
+        httr2::req_error(is_error = function(resp) FALSE) |>
+        httr2::req_perform()
       TRUE
     }, error = function(e) FALSE)
     if (ready) break
     Sys.sleep(1)
   }
   if (!ready) {
-    cli::cli_warn("OSRM server started but not responding after 30 seconds.")
+    cli::cli_warn("OSRM server started but not responding after {max_wait} seconds.")
   }
 
   cli::cli_inform("OSRM server running at {.url {server_url}}")
@@ -139,9 +157,9 @@ warn_resource_usage <- function(pbf_path) {
   pbf_mb <- file.size(pbf_path) / 1024^2
   if (is.na(pbf_mb)) return(invisible(NULL))
 
-  # Graph files are ~3x PBF size; server memory is ~2x PBF size
+  # Graph files are ~3x PBF size; server memory is ~5x PBF size
   disk_gb <- round(pbf_mb * 3 / 1024, 1)
-  mem_gb <- round(pbf_mb * 2 / 1024, 1)
+  mem_gb <- round(pbf_mb * 5 / 1024, 1)
 
   cli::cli_inform(c(
     "i" = "PBF file size: {round(pbf_mb)} MB",

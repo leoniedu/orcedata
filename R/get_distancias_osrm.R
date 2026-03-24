@@ -13,6 +13,12 @@
 #' @param chunk_size Number of origins per OSRM request. Default: `5000L`.
 #' @param preencher_na If `TRUE`, fill unroutable pairs with Euclidean
 #'   distance at `kmh_snap` speed. If `FALSE` (default), preserve `NA`s.
+#'   Ignored when `completar = TRUE`.
+#' @param completar If `TRUE`, automatically call [completar_distancias()]
+#'   on the result to complete NA pairs via augmented graph routing.
+#'   Default: `FALSE`. Overrides `preencher_na`.
+#' @param max_snap_h Maximum snap duration (hours) passed to
+#'   [completar_distancias()]. Default: `1`. Only used when `completar = TRUE`.
 #'
 #' @return A `data.frame` with columns from `src` and `dst` (dropped geometry),
 #'   plus:
@@ -45,7 +51,9 @@
 get_distancias_osrm <- function(src, dst = NULL,
                                 kmh_snap = 2,
                                 chunk_size = 5000L,
-                                preencher_na = FALSE) {
+                                preencher_na = FALSE,
+                                completar = FALSE,
+                                max_snap_h = 1) {
   rlang::check_installed("httr2", reason = "to compute distances via OSRM")
 
   if (!inherits(src, "sf")) {
@@ -68,6 +76,30 @@ get_distancias_osrm <- function(src, dst = NULL,
 
   src_coords <- sf::st_coordinates(src_1)
   dst_coords <- sf::st_coordinates(dst_1)
+
+  # OSRM /table requires at least 2 coordinates.
+
+  # Single-point symmetric case: trivially 0 distance/0 duration.
+  if (symmetric && nrow(src_1) == 1L) {
+    src_attrs <- sf::st_drop_geometry(src_1) |>
+      dplyr::rename_with(\(x) paste0(x, "_orig"), .cols = -".id_orig")
+    dst_attrs <- sf::st_drop_geometry(dst_1) |>
+      dplyr::rename_with(\(x) paste0(x, "_dest"), .cols = -".id_dest")
+
+    res <- data.frame(
+      .id_orig = 1L, .id_dest = 1L,
+      distancia_km = 0, duracao_horas = 0,
+      snap_km_orig = 0, snap_km_dest = 0,
+      metodo = "osrm"
+    ) |>
+      dplyr::left_join(src_attrs, by = ".id_orig") |>
+      dplyr::left_join(dst_attrs, by = ".id_dest")
+
+    attr(res, "snap_src") <- src
+    attr(res, "snap_dst") <- dst
+    attr(res, "kmh_snap") <- kmh_snap
+    return(res)
+  }
 
   n <- nrow(src_1)
   chunks <- split(seq_len(n), ceiling(seq_len(n) / chunk_size))
@@ -226,6 +258,13 @@ get_distancias_osrm <- function(src, dst = NULL,
   attr(res, "snap_src") <- snap_src_sf
   attr(res, "snap_dst") <- snap_dst_sf
   attr(res, "kmh_snap") <- kmh_snap
+
+  if (completar) {
+    res <- completar_distancias(
+      res, src = src, dst = if (symmetric) NULL else dst,
+      kmh_snap = kmh_snap, max_snap_h = max_snap_h
+    )
+  }
 
   res
 }
