@@ -8,7 +8,7 @@ get_distancias_osrm(
   src,
   dst = NULL,
   kmh_snap = 2,
-  chunk_size = 100L,
+  chunk_size = 5000L,
   preencher_na = FALSE
 )
 }
@@ -22,7 +22,7 @@ computes a src-to-src matrix.}
 portion). Default: \code{2}. This converts the snap distance to additional
 travel time. A low value penalizes locations far from roads.}
 
-\item{chunk_size}{Number of origins per OSRM request. Default: \code{100L}.}
+\item{chunk_size}{Number of origins per OSRM request. Default: \code{5000L}.}
 
 \item{preencher_na}{If \code{TRUE}, fill unroutable pairs with Euclidean
 distance at \code{kmh_snap} speed. If \code{FALSE} (default), preserve \code{NA}s.}
@@ -53,18 +53,10 @@ nearest road in the network).
 }
 \details{
 OSRM snaps input coordinates to the nearest point on the road network.
-The road distance returned by \code{osrmTable} only covers the road-to-road
-portion. This function adds the snap distances (origin + destination) to
-both distance and duration, using \code{kmh_snap} to convert snap distance to
-travel time.
-
-For points far from roads (e.g., across a river, on an island), the snap
-distance can be significant. The low default speed (2 km/h) reflects
-uncertainty about off-road travel conditions.
-
-When OSRM cannot route between a pair of points (returns \code{NA}), the
-Euclidean (great-circle) distance is used as a fallback, with duration
-computed at \code{kmh_snap} speed. A warning reports how many pairs were filled.
+The road distance returned by the OSRM table API only covers the
+road-to-road portion. This function adds the snap distances (origin +
+destination) to both distance and duration, using \code{kmh_snap} to convert
+snap distance to travel time.
 }
 \seealso{
 \code{\link[=completar_distancias]{completar_distancias()}} to complete NA pairs via augmented graph.

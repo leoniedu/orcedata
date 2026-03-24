@@ -23,8 +23,8 @@ Imports:
     sf,
     tidyselect
 Suggests:
+    httr2,
     igraph,
-    osrm,
     osrm.backend,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

@@ -26,7 +26,8 @@ The server URL (invisibly).
 }
 \description{
 Downloads an OSM PBF file (if needed), prepares the routing graph, and starts
-a local OSRM server. Configures the \code{osrm} package to use this server.
+a local OSRM server. Sets \code{options(osrm.server = ...)} for use by
+\code{\link[=get_distancias_osrm]{get_distancias_osrm()}}.
 }
 \details{
 The PBF file is cached in \code{tools::R_user_dir("orcedata", which = "cache")}.

@@ -5,7 +5,8 @@
 #' Start a Local OSRM Server
 #'
 #' Downloads an OSM PBF file (if needed), prepares the routing graph, and starts
-#' a local OSRM server. Configures the `osrm` package to use this server.
+#' a local OSRM server. Sets `options(osrm.server = ...)` for use by
+#' [get_distancias_osrm()].
 #'
 #' @param region_pbf Path or URL to an `.osm.pbf` file. Accepts:
 #'   - A full URL (e.g., `"https://download.geofabrik.de/south-america/brazil/nordeste-latest.osm.pbf"`)
@@ -181,4 +182,37 @@ osrm_local_status <- function() {
   }
 
   invisible(running)
+}
+
+#' Clear Cached PBF Files
+#'
+#' Removes downloaded `.osm.pbf` files from the orcedata cache directory.
+#'
+#' @return A character vector of deleted file paths (invisibly).
+#'
+#' @export
+osrm_local_clear_cache <- function() {
+  cache_dir <- tools::R_user_dir("orcedata", which = "cache")
+
+  if (!dir.exists(cache_dir)) {
+    cli::cli_inform("Cache directory does not exist. Nothing to clear.")
+    return(invisible(character(0)))
+  }
+
+  files <- list.files(cache_dir, full.names = TRUE)
+  if (length(files) == 0) {
+    cli::cli_inform("Cache is empty.")
+    return(invisible(character(0)))
+  }
+
+  sizes_mb <- round(file.size(files) / 1024^2)
+  total_mb <- sum(sizes_mb, na.rm = TRUE)
+
+  cli::cli_inform(c(
+    "Removing {length(files)} cached file{?s} ({total_mb} MB):",
+    set_names(basename(files), rep("*", length(files)))
+  ))
+
+  unlink(files)
+  invisible(files)
 }
