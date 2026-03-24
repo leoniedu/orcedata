@@ -41,13 +41,12 @@ source("data-raw/_targets_functions.R")
 list(
   # Phase 1: Geographic Base Data
   tar_target(ufs, make_ufs(ano_ufs)),
-  tar_target(setores_map, make_setores_map(ano_setores)),
   tar_target(municipios_map, make_municipios_map(ano_municipios)),
 
   # Phase 2: CNEFE Processing
   tar_target(
     pontos_setores,
-    make_pontos_setores(municipios_map, setores_map, ufs_filter, ano_cnefe)
+    make_pontos_setores(municipios_map, ufs_filter, ano_cnefe, ano_setores)
   ),
   tar_target(
     pontos_municipios,

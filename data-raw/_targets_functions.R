@@ -17,12 +17,6 @@ make_ufs <- function(ano_ufs) {
   ufs
 }
 
-make_setores_map <- function(ano_setores) {
-  setores_map <- geobr::read_census_tract(year = ano_setores, code_tract = "all")
-  readr::write_rds(setores_map, "data-raw/setores_map.rds")
-  setores_map
-}
-
 make_municipios_map <- function(ano_municipios) {
   municipios_map <- geobr::read_municipality(year = ano_municipios)
   readr::write_rds(municipios_map, "data-raw/municipios_map.rds")
@@ -31,7 +25,7 @@ make_municipios_map <- function(ano_municipios) {
 
 # --- Phase 2: CNEFE Processing -----------------------------------------------
 
-make_pontos_setores <- function(municipios_map, setores_map, ufs_filter, ano_cnefe) {
+make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setores) {
   ufs <- if (is.null(ufs_filter)) {
     unique(substr(as.character(municipios_map$code_muni), 1, 2))
   } else {
@@ -39,6 +33,7 @@ make_pontos_setores <- function(municipios_map, setores_map, ufs_filter, ano_cne
   }
 
   all_setores <- list()
+  all_centroids <- list()
 
   for (uf in ufs) {
     cli::cli_inform("Processing CNEFE for UF {uf}...")
@@ -67,7 +62,7 @@ make_pontos_setores <- function(municipios_map, setores_map, ufs_filter, ano_cne
         )
 
       # Per sector: compute density point
-      # Group by coordinate and count (ponto_densidade requires an n column)
+      # Group by coordinate and count (surveyzones_density_point requires an n column)
       setores_in_mun <- unique(cnefe_df$setor)
       for (setor_now in setores_in_mun) {
         setor_data <- cnefe_df |> dplyr::filter(setor == setor_now)
@@ -81,7 +76,9 @@ make_pontos_setores <- function(municipios_map, setores_map, ufs_filter, ano_cne
             coords = c("LONGITUDE", "LATITUDE"),
             crs = sf::st_crs("EPSG:4674")
           )
-        ponto <- orce::ponto_densidade(setor_sf, setor)
+        ponto <- surveyzones::surveyzones_density_point(setor_sf, setor) |>
+          orce::add_coordinates() |>
+          sf::st_drop_geometry()
         ponto$n <- sum(setor_counted$n)
         uf_setores[[length(uf_setores) + 1]] <- ponto
       }
@@ -95,6 +92,16 @@ make_pontos_setores <- function(municipios_map, setores_map, ufs_filter, ano_cne
     }
 
     all_setores <- c(all_setores, uf_setores)
+
+    # Download census tract centroids for this UF (for fallback)
+    cli::cli_inform("Downloading census tract centroids for UF {uf}...")
+    uf_tracts <- geobr::read_census_tract(year = ano_setores, code_tract = as.numeric(uf))
+    uf_cent <- uf_tracts |>
+      dplyr::mutate(setor = as.character(code_tract)) |>
+      sf::st_centroid() |>
+      dplyr::select(setor) |>
+      orce::add_coordinates(lon = "setor_centroide_lon", lat = "setor_centroide_lat")
+    all_centroids[[uf]] <- uf_cent
   }
 
   pontos_setores <- dplyr::bind_rows(all_setores) |>
@@ -104,12 +111,8 @@ make_pontos_setores <- function(municipios_map, setores_map, ufs_filter, ano_cne
     ) |>
     dplyr::rename(setor_cnefe_lon = lon, setor_cnefe_lat = lat)
 
-  # Centroid fallback from setores_map
-  setores_cent <- setores_map |>
-    dplyr::mutate(setor = as.character(code_tract)) |>
-    sf::st_centroid() |>
-    dplyr::select(setor) |>
-    orce::add_coordinates(lon = "setor_centroide_lon", lat = "setor_centroide_lat")
+  # Centroid fallback from downloaded census tracts
+  setores_cent <- dplyr::bind_rows(all_centroids)
 
   pontos_setores <- pontos_setores |>
     dplyr::left_join(
@@ -131,6 +134,7 @@ make_pontos_setores <- function(municipios_map, setores_map, ufs_filter, ano_cne
 
   # Composite coordinates
   pontos_setores <- pontos_setores |>
+    sf::st_drop_geometry() |>
     dplyr::mutate(
       setor_lon = dplyr::coalesce(setor_cnefe_lon, setor_centroide_lon),
       setor_lat = dplyr::coalesce(setor_cnefe_lat, setor_centroide_lat)
@@ -143,14 +147,21 @@ make_pontos_setores <- function(municipios_map, setores_map, ufs_filter, ano_cne
 
 make_pontos_municipios <- function(pontos_setores, municipios_map) {
   # Only use sectors with CNEFE data (n > 0) for density calculation
-  pontos_municipios <- pontos_setores |>
+  pontos_setores_sf <- pontos_setores |>
     dplyr::filter(n > 0) |>
     dplyr::mutate(municipio_codigo = substr(setor, 1, 7)) |>
-    dplyr::group_by(municipio_codigo) |>
-    dplyr::group_modify(~ {
-      orce::ponto_densidade(.x, municipio_codigo)
-    }) |>
-    dplyr::ungroup() |>
+    sf::st_as_sf(
+      coords = c("setor_lon", "setor_lat"),
+      crs = sf::st_crs("EPSG:4674")
+    )
+  mun_codes <- unique(pontos_setores_sf$municipio_codigo)
+  mun_points <- lapply(mun_codes, function(mc) {
+    subset <- pontos_setores_sf |> dplyr::filter(municipio_codigo == mc)
+    surveyzones::surveyzones_density_point(subset, municipio_codigo) |>
+      orce::add_coordinates() |>
+      sf::st_drop_geometry()
+  })
+  pontos_municipios <- dplyr::bind_rows(mun_points) |>
     sf::st_as_sf(
       crs = sf::st_crs("EPSG:4674"),
       coords = c("lon", "lat"), remove = FALSE

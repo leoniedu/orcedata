@@ -35,6 +35,7 @@ Suggests:
     readr,
     readxl,
     sidrar,
+    surveyzones,
     targets,
     testthat (>= 3.0.0),
     tidyr,
