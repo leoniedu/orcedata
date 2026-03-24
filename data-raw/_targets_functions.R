@@ -10,6 +10,8 @@ devtools::load_all()
 
 make_ufs <- function(ano_ufs) {
   ufs <- geobr::read_state(year = ano_ufs) |>
+    sf::st_set_geometry("geom") |>
+    dplyr::rename(geometry = geom) |>
     sf::st_centroid() |>
     orce::add_coordinates(lat = "uf_lat", lon = "uf_lon") |>
     rename_ibge()
@@ -18,7 +20,9 @@ make_ufs <- function(ano_ufs) {
 }
 
 make_municipios_map <- function(ano_municipios) {
-  municipios_map <- geobr::read_municipality(year = ano_municipios)
+  municipios_map <- geobr::read_municipality(year = ano_municipios) |>
+    sf::st_set_geometry("geom") |>
+    dplyr::rename(geometry = geom)
   readr::write_rds(municipios_map, "data-raw/municipios_map.rds")
   municipios_map
 }
@@ -95,7 +99,9 @@ make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setor
 
     # Download census tract centroids for this UF (for fallback)
     cli::cli_inform("Downloading census tract centroids for UF {uf}...")
-    uf_tracts <- geobr::read_census_tract(year = ano_setores, code_tract = as.numeric(uf))
+    uf_tracts <- geobr::read_census_tract(year = ano_setores, code_tract = as.numeric(uf)) |>
+      sf::st_set_geometry("geom") |>
+      dplyr::rename(geometry = geom)
     uf_cent <- uf_tracts |>
       dplyr::mutate(setor = as.character(code_tract)) |>
       sf::st_centroid() |>
@@ -124,7 +130,6 @@ make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setor
   pontos_setores <- dplyr::bind_rows(
     pontos_setores,
     setores_cent |>
-      dplyr::rename(geometry = geom) |>
       dplyr::anti_join(
         pontos_setores |> sf::st_drop_geometry(),
         by = "setor"
@@ -214,10 +219,11 @@ make_pop <- function(ano_populacao) {
 }
 
 make_municipios <- function(pontos_municipios, municipios_geo, pop, ano_sedes) {
-  pontos_municipios_sede_0 <- geobr::read_municipal_seat(year = ano_sedes)
-  pontos_municipios_sede_1 <- pontos_municipios_sede_0 |>
-    dplyr::transmute(municipio_codigo = as.character(code_muni)) |>
+  pontos_municipios_sede_0 <- geobr::read_municipal_seat(year = ano_sedes) |>
+    sf::st_set_geometry("geom") |>
     dplyr::rename(geometry = geom)
+  pontos_municipios_sede_1 <- pontos_municipios_sede_0 |>
+    dplyr::transmute(municipio_codigo = as.character(code_muni))
 
   # Fallback 1: CNEFE points for municipalities without seat data
   existing_codes <- pontos_municipios_sede_1 |>
