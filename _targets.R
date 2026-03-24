@@ -10,24 +10,27 @@
 library(targets)
 
 # --- Configuration -----------------------------------------------------------
-ufs_filter <- NULL # NULL = all 27 UFs; e.g. c("29","28") for testing
+ufs_filter <- 11 # NULL = all 27 UFs; e.g. c("29","28") for testing
 
 # Data years — changing any of these invalidates dependent targets
-ano_ufs           <- 2020  # geobr::read_state()
-ano_setores       <- 2022  # geobr::read_census_tract()
-ano_municipios    <- 2024  # geobr::read_municipality()
-ano_sedes         <- 2010  # geobr::read_municipal_seat()
-ano_cnefe         <- 2022  # cnefetools::read_cnefe()
-ano_censo_tracts  <- 2022  # censobr::read_tracts() (microregion codes)
-ano_populacao     <- "2024" # sidrar::get_sidra() period
-ano_rm            <- 2024  # Composição RM (IBGE geoftp)
+ano_ufs <- 2020 # geobr::read_state()
+ano_setores <- 2022 # geobr::read_census_tract()
+ano_municipios <- 2024 # geobr::read_municipality()
+ano_sedes <- 2010 # geobr::read_municipal_seat()
+ano_cnefe <- 2022 # cnefetools::read_cnefe()
+ano_censo_tracts <- 2022 # censobr::read_tracts() (microregion codes)
+ano_populacao <- "2024" # sidrar::get_sidra() period
+ano_rm <- 2024 # Composição RM (IBGE geoftp)
 
 # BDO source files
-bdo_agencias_csv  <- "data-raw/bdo_agencias/agencia20260210.csv"
-bdo_grid_csv      <- "data-raw/bdo_agencias/grid-export_20260210.csv"
+bdo_agencias_csv <- "data-raw/bdo_agencias/agencia20260210.csv"
+bdo_grid_csv <- "data-raw/bdo_agencias/grid-export_20260210.csv"
+
+# Cache management
+limpar_cache <- TRUE # TRUE = delete downloaded caches after processing each UF
 
 # OSRM data
-osm_pbf           <- "brazil-260323.osm.pbf"
+osm_pbf <- "brazil-260323.osm.pbf"
 
 # --- Load packages and functions ---------------------------------------------
 tar_option_set(
@@ -46,7 +49,13 @@ list(
   # Phase 2: CNEFE Processing
   tar_target(
     pontos_setores,
-    make_pontos_setores(municipios_map, ufs_filter, ano_cnefe, ano_setores)
+    make_pontos_setores(
+      municipios_map,
+      ufs_filter,
+      ano_cnefe,
+      ano_setores,
+      limpar_cache
+    )
   ),
   tar_target(
     pontos_municipios,
@@ -82,7 +91,13 @@ list(
   # Phase 4: OSRM Distance Calculations
   tar_target(
     osrm_start,
-    make_osrm_start(osm_pbf, agencias_bdo, agencias_mun, municipios, pontos_municipios),
+    make_osrm_start(
+      osm_pbf,
+      agencias_bdo,
+      agencias_mun,
+      municipios,
+      pontos_municipios
+    ),
     cue = tar_cue(mode = "always")
   ),
   tar_target(
@@ -92,8 +107,12 @@ list(
   tar_target(
     distancias_agencias_mun_osrm,
     make_distancias_agencias_mun_osrm(
-      agencias_bdo, agencias_mun, municipios, municipios_codigos,
-      pontos_municipios, osrm_start, ufs_filter
+      agencias_bdo,
+      agencias_mun,
+      municipios,
+      municipios_codigos,
+      osrm_start,
+      ufs_filter
     )
   ),
   tar_target(

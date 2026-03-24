@@ -1,3 +1,71 @@
+# Targets Pipeline Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Create a `{targets}` pipeline that orchestrates the orcedata data preparation workflow with configurable parameters, dependency tracking, and caching.
+
+**Architecture:** Two new files: `_targets.R` (pipeline definition with configuration) and `data-raw/_targets_functions.R` (one function per target). Target functions call `usethis::use_data()` as a side effect and return the object for downstream consumption. OSRM lifecycle managed via dedicated start/stop targets with `cue = tar_cue(mode = "always")`.
+
+**Tech Stack:** R, targets, geobr, cnefetools, sidrar, censobr, sf, dplyr, orce, osrm.backend
+
+**Spec:** `docs/superpowers/specs/2026-03-24-targets-pipeline-design.md`
+
+---
+
+### Task 1: Add package dependencies to DESCRIPTION
+
+**Files:**
+- Modify: `DESCRIPTION`
+
+- [ ] **Step 1: Add targets and data pipeline packages to Suggests**
+
+Add these packages to the `Suggests:` section in `DESCRIPTION` (alphabetically):
+
+```
+Suggests:
+    arrow,
+    censobr,
+    cnefetools,
+    furrr,
+    geobr,
+    here,
+    httr2,
+    igraph,
+    osrm.backend,
+    readr,
+    readxl,
+    sidrar,
+    targets,
+    testthat (>= 3.0.0),
+    tidyr,
+    usethis
+```
+
+- [ ] **Step 2: Verify DESCRIPTION is valid**
+
+Run: `Rscript -e 'devtools::check(args = "--no-tests --no-examples --no-vignettes --no-manual")'`
+
+Only check for DESCRIPTION parse errors — a full check is not needed.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add DESCRIPTION
+git commit -m "chore: add targets pipeline dependencies to Suggests"
+```
+
+---
+
+### Task 2: Create target functions — Phase 1 (Geographic Base Data)
+
+**Files:**
+- Create: `data-raw/_targets_functions.R`
+
+These are the simplest targets — they download data from geobr APIs and save results. Each function takes year parameters, calls `usethis::use_data()` or `readr::write_rds()`, and returns the object.
+
+- [ ] **Step 1: Create `data-raw/_targets_functions.R` with Phase 1 functions**
+
+```r
 # =============================================================================
 # Target functions for the orcedata {targets} pipeline
 # Each function is named make_<target_name> and returns the object it creates.
@@ -6,20 +74,10 @@
 
 devtools::load_all()
 
-# --- Helpers ------------------------------------------------------------------
-
-#' Rename geobr's default "geom" geometry column to "geometry"
-fix_geom <- function(sf_obj) {
-  sf_obj |>
-    sf::st_set_geometry("geom") |>
-    dplyr::rename(geometry = geom)
-}
-
 # --- Phase 1: Geographic Base Data -------------------------------------------
 
 make_ufs <- function(ano_ufs) {
   ufs <- geobr::read_state(year = ano_ufs) |>
-    fix_geom() |>
     sf::st_centroid() |>
     orce::add_coordinates(lat = "uf_lat", lon = "uf_lon") |>
     rename_ibge()
@@ -27,17 +85,51 @@ make_ufs <- function(ano_ufs) {
   ufs
 }
 
+make_setores_map <- function(ano_setores) {
+  setores_map <- geobr::read_census_tract(year = ano_setores, code_tract = "all")
+  readr::write_rds(setores_map, "data-raw/setores_map.rds")
+  setores_map
+}
+
 make_municipios_map <- function(ano_municipios) {
-  municipios_map <- geobr::read_municipality(year = ano_municipios) |>
-    fix_geom()
+  municipios_map <- geobr::read_municipality(year = ano_municipios)
   readr::write_rds(municipios_map, "data-raw/municipios_map.rds")
   municipios_map
 }
+```
 
+- [ ] **Step 2: Verify functions parse correctly**
+
+Run: `Rscript -e 'source("data-raw/_targets_functions.R"); cat("OK\n")'`
+
+Expected: `OK` (no parse errors)
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add data-raw/_targets_functions.R
+git commit -m "feat: add Phase 1 target functions (geographic base data)"
+```
+
+---
+
+### Task 3: Create target functions — Phase 2 (CNEFE Processing)
+
+**Files:**
+- Modify: `data-raw/_targets_functions.R`
+
+The `pontos_setores` function merges the CNEFE download + sector density calculation into one target. It loops through municipalities per UF, uses `cnefetools::read_cnefe()`, computes `orce::ponto_densidade()`, and cleans up CNEFE cache. The output includes an `n` column (CNEFE address count) for downstream weighting.
+
+Reference: `data-raw/cnefe_calcula_pontos_setores.R` (lines 19-39 for density logic, lines 72-89 for centroid fallback) and `data-raw/cnefe_calcula_pontos_municipios.R` (lines 10-33 for municipality aggregation).
+
+- [ ] **Step 1: Add `make_pontos_setores` function**
+
+Append to `data-raw/_targets_functions.R`:
+
+```r
 # --- Phase 2: CNEFE Processing -----------------------------------------------
 
-make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setores,
-                                limpar_cache = FALSE) {
+make_pontos_setores <- function(municipios_map, setores_map, ufs_filter, ano_cnefe) {
   ufs <- if (is.null(ufs_filter)) {
     unique(substr(as.character(municipios_map$code_muni), 1, 2))
   } else {
@@ -45,7 +137,6 @@ make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setor
   }
 
   all_setores <- list()
-  all_centroids <- list()
 
   for (uf in ufs) {
     cli::cli_inform("Processing CNEFE for UF {uf}...")
@@ -74,9 +165,11 @@ make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setor
         )
 
       # Per sector: compute density point
-      # Prefer residential addresses per sector, fall back to all addresses
-      cnefe_by_setor <- split(cnefe_df, cnefe_df$setor)
-      for (setor_data in cnefe_by_setor) {
+      # Group by coordinate and count (ponto_densidade requires an n column)
+      setores_in_mun <- unique(cnefe_df$setor)
+      for (setor_now in setores_in_mun) {
+        setor_data <- cnefe_df |> dplyr::filter(setor == setor_now)
+        # Prefer residential addresses
         setor_res <- setor_data |> dplyr::filter(dp)
         setor_use <- if (nrow(setor_res) > 0) setor_res else setor_data
         setor_counted <- setor_use |>
@@ -86,33 +179,20 @@ make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setor
             coords = c("LONGITUDE", "LATITUDE"),
             crs = sf::st_crs("EPSG:4674")
           )
-        ponto <- surveyzones::surveyzones_density_point(setor_sf, setor) |>
-          orce::add_coordinates() |>
-          sf::st_drop_geometry()
+        ponto <- orce::ponto_densidade(setor_sf, setor)
         ponto$n <- sum(setor_counted$n)
         uf_setores[[length(uf_setores) + 1]] <- ponto
       }
     }
 
-    if (limpar_cache) {
-      cache_dir <- tools::R_user_dir("cnefetools", which = "cache")
-      if (dir.exists(cache_dir)) {
-        uf_files <- list.files(cache_dir, pattern = paste0("^", uf), full.names = TRUE)
-        if (length(uf_files) > 0) unlink(uf_files)
-      }
+    # Clean up cnefetools cache for this UF
+    cache_dir <- tools::R_user_dir("cnefetools", which = "cache")
+    if (dir.exists(cache_dir)) {
+      uf_files <- list.files(cache_dir, pattern = paste0("^", uf), full.names = TRUE)
+      if (length(uf_files) > 0) unlink(uf_files)
     }
 
     all_setores <- c(all_setores, uf_setores)
-
-    # Download census tract centroids for this UF (for fallback)
-    cli::cli_inform("Downloading census tract centroids for UF {uf}...")
-    uf_cent <- geobr::read_census_tract(year = ano_setores, code_tract = as.numeric(uf)) |>
-      fix_geom() |>
-      dplyr::mutate(setor = as.character(code_tract)) |>
-      sf::st_centroid() |>
-      dplyr::select(setor) |>
-      orce::add_coordinates(lon = "setor_centroide_lon", lat = "setor_centroide_lat")
-    all_centroids[[uf]] <- uf_cent
   }
 
   pontos_setores <- dplyr::bind_rows(all_setores) |>
@@ -122,8 +202,12 @@ make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setor
     ) |>
     dplyr::rename(setor_cnefe_lon = lon, setor_cnefe_lat = lat)
 
-  # Centroid fallback from downloaded census tracts
-  setores_cent <- dplyr::bind_rows(all_centroids)
+  # Centroid fallback from setores_map
+  setores_cent <- setores_map |>
+    dplyr::mutate(setor = as.character(code_tract)) |>
+    sf::st_centroid() |>
+    dplyr::select(setor) |>
+    orce::add_coordinates(lon = "setor_centroide_lon", lat = "setor_centroide_lat")
 
   pontos_setores <- pontos_setores |>
     dplyr::left_join(
@@ -135,6 +219,7 @@ make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setor
   pontos_setores <- dplyr::bind_rows(
     pontos_setores,
     setores_cent |>
+      dplyr::rename(geometry = geom) |>
       dplyr::anti_join(
         pontos_setores |> sf::st_drop_geometry(),
         by = "setor"
@@ -144,7 +229,6 @@ make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setor
 
   # Composite coordinates
   pontos_setores <- pontos_setores |>
-    sf::st_drop_geometry() |>
     dplyr::mutate(
       setor_lon = dplyr::coalesce(setor_cnefe_lon, setor_centroide_lon),
       setor_lat = dplyr::coalesce(setor_cnefe_lat, setor_centroide_lat)
@@ -154,24 +238,23 @@ make_pontos_setores <- function(municipios_map, ufs_filter, ano_cnefe, ano_setor
   usethis::use_data(pontos_setores, overwrite = TRUE)
   pontos_setores
 }
+```
 
+- [ ] **Step 2: Add `make_pontos_municipios` function**
+
+Append to `data-raw/_targets_functions.R`:
+
+```r
 make_pontos_municipios <- function(pontos_setores, municipios_map) {
   # Only use sectors with CNEFE data (n > 0) for density calculation
-  pontos_setores_sf <- pontos_setores |>
+  pontos_municipios <- pontos_setores |>
     dplyr::filter(n > 0) |>
     dplyr::mutate(municipio_codigo = substr(setor, 1, 7)) |>
-    sf::st_as_sf(
-      coords = c("setor_lon", "setor_lat"),
-      crs = sf::st_crs("EPSG:4674")
-    )
-  mun_codes <- unique(pontos_setores_sf$municipio_codigo)
-  mun_points <- lapply(mun_codes, function(mc) {
-    subset <- pontos_setores_sf |> dplyr::filter(municipio_codigo == mc)
-    surveyzones::surveyzones_density_point(subset, municipio_codigo) |>
-      orce::add_coordinates() |>
-      sf::st_drop_geometry()
-  })
-  pontos_municipios <- dplyr::bind_rows(mun_points) |>
+    dplyr::group_by(municipio_codigo) |>
+    dplyr::group_modify(~ {
+      orce::ponto_densidade(.x, municipio_codigo)
+    }) |>
+    dplyr::ungroup() |>
     sf::st_as_sf(
       crs = sf::st_crs("EPSG:4674"),
       coords = c("lon", "lat"), remove = FALSE
@@ -201,7 +284,33 @@ make_pontos_municipios <- function(pontos_setores, municipios_map) {
   usethis::use_data(pontos_municipios, overwrite = TRUE)
   pontos_municipios
 }
+```
 
+- [ ] **Step 3: Verify functions parse correctly**
+
+Run: `Rscript -e 'source("data-raw/_targets_functions.R"); cat("OK\n")'`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add data-raw/_targets_functions.R
+git commit -m "feat: add Phase 2 target functions (CNEFE processing)"
+```
+
+---
+
+### Task 4: Create target functions — Phase 3 (Municipality + Agency Data)
+
+**Files:**
+- Modify: `data-raw/_targets_functions.R`
+
+Reference: `data-raw/geobrcache.R` (lines 24-74 for municipios), `data-raw/agencias.R` (full file).
+
+- [ ] **Step 1: Add municipality target functions**
+
+Append to `data-raw/_targets_functions.R`:
+
+```r
 # --- Phase 3: Municipality + Agency Data --------------------------------------
 
 make_municipios_geo <- function(municipios_map) {
@@ -224,13 +333,13 @@ make_pop <- function(ano_populacao) {
 }
 
 make_municipios <- function(pontos_municipios, municipios_geo, pop, ano_sedes) {
-  pontos_municipios_sede_0 <- geobr::read_municipal_seat(year = ano_sedes) |>
-    fix_geom()
+  pontos_municipios_sede_0 <- geobr::read_municipal_seat(year = ano_sedes)
   pontos_municipios_sede_1 <- pontos_municipios_sede_0 |>
-    dplyr::transmute(municipio_codigo = as.character(code_muni))
+    dplyr::transmute(municipio_codigo = as.character(code_muni)) |>
+    dplyr::rename(geometry = geom)
 
   # Fallback 1: CNEFE points for municipalities without seat data
-  codes_with_seat <- pontos_municipios_sede_1 |>
+  existing_codes <- pontos_municipios_sede_1 |>
     sf::st_drop_geometry() |>
     dplyr::pull(municipio_codigo)
 
@@ -238,11 +347,11 @@ make_municipios <- function(pontos_municipios, municipios_geo, pop, ano_sedes) {
     dplyr::bind_rows(
       pontos_municipios |>
         dplyr::select(municipio_codigo) |>
-        dplyr::filter(!municipio_codigo %in% codes_with_seat)
+        dplyr::filter(!municipio_codigo %in% existing_codes)
     )
 
   # Fallback 2: geobr centroids for municipalities without seat or CNEFE
-  codes_with_seat_or_cnefe <- pontos_municipios_sede |>
+  existing_codes <- pontos_municipios_sede |>
     sf::st_drop_geometry() |>
     dplyr::pull(municipio_codigo)
 
@@ -250,7 +359,7 @@ make_municipios <- function(pontos_municipios, municipios_geo, pop, ano_sedes) {
     dplyr::bind_rows(
       municipios_geo |>
         dplyr::select(municipio_codigo) |>
-        dplyr::filter(!municipio_codigo %in% codes_with_seat_or_cnefe)
+        dplyr::filter(!municipio_codigo %in% existing_codes)
     ) |>
     orce::add_coordinates(lat = "municipio_sede_lat", lon = "municipio_sede_lon")
 
@@ -264,7 +373,13 @@ make_municipios <- function(pontos_municipios, municipios_geo, pop, ano_sedes) {
   usethis::use_data(municipios, overwrite = TRUE)
   municipios
 }
+```
 
+- [ ] **Step 2: Add agency target functions**
+
+Append to `data-raw/_targets_functions.R`:
+
+```r
 make_agencias_bdo <- function(municipios, bdo_agencias_file) {
   agencias_bdo_0 <- readr::read_csv2(
     bdo_agencias_file,
@@ -402,7 +517,33 @@ make_agencias_mun <- function(agencias_bdo, agencias_bdo_mun, municipios_codigos
   usethis::use_data(agencias_mun, overwrite = TRUE)
   agencias_mun
 }
+```
 
+- [ ] **Step 3: Verify functions parse correctly**
+
+Run: `Rscript -e 'source("data-raw/_targets_functions.R"); cat("OK\n")'`
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add data-raw/_targets_functions.R
+git commit -m "feat: add Phase 3 target functions (municipality + agency data)"
+```
+
+---
+
+### Task 5: Create target functions — Phase 4 (OSRM Distance Calculations)
+
+**Files:**
+- Modify: `data-raw/_targets_functions.R`
+
+Reference: `data-raw/distancias_agencias_osrm.R` and `data-raw/distancias_agencias_municipios_osrm.R`.
+
+- [ ] **Step 1: Add OSRM lifecycle and distance target functions**
+
+Append to `data-raw/_targets_functions.R`:
+
+```r
 # --- Phase 4: OSRM Distance Calculations -------------------------------------
 
 make_osrm_start <- function(osm_pbf, ...) {
@@ -418,6 +559,8 @@ make_osrm_stop <- function(...) {
 }
 
 make_distancias_agencias_osrm <- function(agencias_bdo, osrm_start, ufs_filter) {
+  on.exit(tryCatch(osrm_local_stop(), error = function(e) NULL))
+
   ufs <- if (is.null(ufs_filter)) {
     unique(agencias_bdo$uf_codigo)
   } else {
@@ -458,7 +601,10 @@ make_distancias_agencias_osrm <- function(agencias_bdo, osrm_start, ufs_filter) 
 
 make_distancias_agencias_mun_osrm <- function(agencias_bdo, agencias_mun,
                                                municipios, municipios_codigos,
-                                               osrm_start, ufs_filter) {
+                                               pontos_municipios, osrm_start,
+                                               ufs_filter) {
+  on.exit(tryCatch(osrm_local_stop(), error = function(e) NULL))
+
   ufs <- if (is.null(ufs_filter)) {
     unique(agencias_bdo$uf_codigo)
   } else {
@@ -468,12 +614,12 @@ make_distancias_agencias_mun_osrm <- function(agencias_bdo, agencias_mun,
   distancias_list <- vector(mode = "list", length = length(ufs))
   names(distancias_list) <- ufs
 
-  for (uf in ufs) {
-    cli::cli_inform("Processing agency-municipality distances for UF {uf}...")
-    ag_uf <- agencias_bdo |> dplyr::filter(uf_codigo == uf)
-    mun_uf <- municipios |> dplyr::filter(substr(municipio_codigo, 1, 2) == uf)
+  for (j in ufs) {
+    cli::cli_inform("Processing agency-municipality distances for UF {j}...")
+    ag_uf <- agencias_bdo |> dplyr::filter(uf_codigo == j)
+    mun_uf <- municipios |> dplyr::filter(substr(municipio_codigo, 1, 2) == j)
     res <- get_distancias_osrm(src = ag_uf, dst = mun_uf, completar = TRUE)
-    distancias_list[[uf]] <- res |>
+    distancias_list[[as.character(j)]] <- res |>
       dplyr::select(
         agencia_codigo = agencia_codigo_orig,
         municipio_codigo = municipio_codigo_dest,
@@ -586,3 +732,273 @@ make_distancias_agencias_mun_osrm <- function(agencias_bdo, agencias_mun,
   # Return the primary dataset for dependency tracking
   distancias_agencias_municipios_osrm
 }
+```
+
+- [ ] **Step 2: Verify functions parse correctly**
+
+Run: `Rscript -e 'source("data-raw/_targets_functions.R"); cat("OK\n")'`
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add data-raw/_targets_functions.R
+git commit -m "feat: add Phase 4 target functions (OSRM distances)"
+```
+
+---
+
+### Task 6: Create `_targets.R` pipeline definition
+
+**Files:**
+- Create: `_targets.R`
+
+- [ ] **Step 1: Create `_targets.R` with configuration and target list**
+
+```r
+# =============================================================================
+# orcedata {targets} pipeline
+#
+# Usage:
+#   targets::tar_make()          # run full pipeline
+#   targets::tar_visnetwork()    # visualize DAG
+#   targets::tar_outdated()      # check what needs re-running
+# =============================================================================
+
+library(targets)
+
+# --- Configuration -----------------------------------------------------------
+ufs_filter <- NULL # NULL = all 27 UFs; e.g. c("29","28") for testing
+
+# Data years — changing any of these invalidates dependent targets
+ano_ufs           <- 2020  # geobr::read_state()
+ano_setores       <- 2022  # geobr::read_census_tract()
+ano_municipios    <- 2024  # geobr::read_municipality()
+ano_sedes         <- 2010  # geobr::read_municipal_seat()
+ano_cnefe         <- 2022  # cnefetools::read_cnefe()
+ano_censo_tracts  <- 2022  # censobr::read_tracts() (microregion codes)
+ano_populacao     <- "2024" # sidrar::get_sidra() period
+ano_rm            <- 2024  # Composição RM (IBGE geoftp)
+
+# BDO source files
+bdo_agencias_csv  <- "data-raw/bdo_agencias/agencia20260210.csv"
+bdo_grid_csv      <- "data-raw/bdo_agencias/grid-export_20260210.csv"
+
+# OSRM data
+osm_pbf           <- "brazil-260323.osm.pbf"
+
+# --- Load packages and functions ---------------------------------------------
+tar_option_set(
+  packages = c("dplyr", "sf"),
+  error = "stop"
+)
+
+source("data-raw/_targets_functions.R")
+
+# --- Target list --------------------------------------------------------------
+list(
+  # Phase 1: Geographic Base Data
+  tar_target(ufs, make_ufs(ano_ufs)),
+  tar_target(setores_map, make_setores_map(ano_setores)),
+  tar_target(municipios_map, make_municipios_map(ano_municipios)),
+
+  # Phase 2: CNEFE Processing
+  tar_target(
+    pontos_setores,
+    make_pontos_setores(municipios_map, setores_map, ufs_filter, ano_cnefe)
+  ),
+  tar_target(
+    pontos_municipios,
+    make_pontos_municipios(pontos_setores, municipios_map)
+  ),
+
+  # Phase 3: Municipality + Agency Data
+  tar_target(municipios_geo, make_municipios_geo(municipios_map)),
+  tar_target(pop, make_pop(ano_populacao)),
+  tar_target(
+    municipios,
+    make_municipios(pontos_municipios, municipios_geo, pop, ano_sedes)
+  ),
+  tar_target(bdo_agencias_file, bdo_agencias_csv, format = "file"),
+  tar_target(bdo_grid_file, bdo_grid_csv, format = "file"),
+  tar_target(
+    agencias_bdo,
+    make_agencias_bdo(municipios, bdo_agencias_file)
+  ),
+  tar_target(
+    agencias_bdo_mun,
+    make_agencias_bdo_mun(agencias_bdo, pontos_municipios, bdo_grid_file)
+  ),
+  tar_target(
+    municipios_codigos,
+    make_municipios_codigos(ano_censo_tracts, ano_rm)
+  ),
+  tar_target(
+    agencias_mun,
+    make_agencias_mun(agencias_bdo, agencias_bdo_mun, municipios_codigos)
+  ),
+
+  # Phase 4: OSRM Distance Calculations
+  tar_target(
+    osrm_start,
+    make_osrm_start(osm_pbf, agencias_bdo, agencias_mun, municipios, pontos_municipios),
+    cue = tar_cue(mode = "always")
+  ),
+  tar_target(
+    distancias_agencias_osrm,
+    make_distancias_agencias_osrm(agencias_bdo, osrm_start, ufs_filter)
+  ),
+  tar_target(
+    distancias_agencias_mun_osrm,
+    make_distancias_agencias_mun_osrm(
+      agencias_bdo, agencias_mun, municipios, municipios_codigos,
+      pontos_municipios, osrm_start, ufs_filter
+    )
+  ),
+  tar_target(
+    osrm_stop,
+    make_osrm_stop(distancias_agencias_osrm, distancias_agencias_mun_osrm),
+    cue = tar_cue(mode = "always")
+  )
+)
+```
+
+- [ ] **Step 2: Verify pipeline definition is valid**
+
+Run: `Rscript -e 'targets::tar_validate(); cat("Pipeline valid\n")'`
+
+Expected: `Pipeline valid` (no errors)
+
+- [ ] **Step 3: Verify DAG structure**
+
+Run: `Rscript -e 'targets::tar_glimpse()'`
+
+Verify the output shows the expected dependency graph with all targets connected correctly.
+
+- [ ] **Step 4: Add `_targets/` to `.gitignore`**
+
+The `_targets/` directory stores targets cache and should not be committed. Check if `.gitignore` already has it, and add if missing:
+
+```
+_targets/
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add _targets.R .gitignore
+git commit -m "feat: add targets pipeline definition with configurable parameters"
+```
+
+---
+
+### Task 7: Smoke test with a single small UF
+
+**Files:**
+- Modify: `_targets.R` (temporarily set `ufs_filter`)
+
+This task verifies the pipeline runs end-to-end for Phases 1-3 (no OSRM needed). Use Sergipe (UF "28") — smallest state, fewest municipalities.
+
+- [ ] **Step 1: Set `ufs_filter` for testing**
+
+In `_targets.R`, change:
+```r
+ufs_filter <- NULL
+```
+to:
+```r
+ufs_filter <- c("28") # Sergipe — smoke test
+```
+
+- [ ] **Step 2: Run Phase 1-3 targets only**
+
+Run: `Rscript -e 'targets::tar_make(names = c("ufs", "setores_map", "municipios_map", "pontos_setores", "pontos_municipios", "municipios_geo", "pop", "municipios", "agencias_bdo", "agencias_bdo_mun", "municipios_codigos", "agencias_mun"))'`
+
+This should complete without OSRM. Monitor for:
+- geobr downloads succeeding
+- cnefetools downloading CNEFE for Sergipe municipalities
+- `pontos_setores` producing sector density points
+- `municipios` having valid geometry (no NA coordinates)
+- `agencias_bdo_mun` stopifnot checks passing
+
+- [ ] **Step 3: Inspect results**
+
+Run:
+```r
+Rscript -e '
+  targets::tar_load(pontos_setores)
+  cat("pontos_setores:", nrow(pontos_setores), "rows\n")
+  targets::tar_load(municipios)
+  cat("municipios:", nrow(municipios), "rows\n")
+  cat("NA geometries:", sum(sf::st_is_empty(municipios)), "\n")
+  targets::tar_load(agencias_bdo)
+  cat("agencias_bdo:", nrow(agencias_bdo), "rows\n")
+'
+```
+
+Verify: no NA geometries, reasonable row counts.
+
+- [ ] **Step 4: Reset `ufs_filter` back to `NULL`**
+
+In `_targets.R`, change back to:
+```r
+ufs_filter <- NULL # NULL = all 27 UFs; e.g. c("29","28") for testing
+```
+
+- [ ] **Step 5: Commit (if any fixes were needed)**
+
+```bash
+git add _targets.R data-raw/_targets_functions.R
+git commit -m "fix: adjustments from smoke test"
+```
+
+---
+
+### Task 8: Smoke test OSRM distance targets
+
+**Files:**
+- Modify: `_targets.R` (temporarily)
+
+This tests Phase 4 with a small UF. Requires OSRM and the OSM PBF file.
+
+- [ ] **Step 1: Set `ufs_filter` for testing**
+
+In `_targets.R`:
+```r
+ufs_filter <- c("28") # Sergipe — smoke test
+```
+
+- [ ] **Step 2: Run full pipeline including OSRM targets**
+
+Run: `Rscript -e 'targets::tar_make()'`
+
+Monitor for:
+- OSRM server starting successfully
+- `distancias_agencias_osrm` computing inter-agency distances for UF 28
+- `distancias_agencias_mun_osrm` computing agency-municipality distances + diária
+- OSRM server stopping
+- All three distance `.rda` files created in `data/`
+
+- [ ] **Step 3: Inspect distance results**
+
+Run:
+```r
+Rscript -e '
+  targets::tar_load(distancias_agencias_osrm)
+  cat("distancias_agencias_osrm:", nrow(distancias_agencias_osrm), "rows\n")
+  targets::tar_load(distancias_agencias_mun_osrm)
+  cat("distancias_agencias_mun_osrm:", nrow(distancias_agencias_mun_osrm), "rows\n")
+  load("data/agencias_municipios_diaria.rda")
+  cat("agencias_municipios_diaria:", nrow(agencias_municipios_diaria), "rows\n")
+'
+```
+
+- [ ] **Step 4: Reset `ufs_filter` and commit**
+
+```r
+ufs_filter <- NULL
+```
+
+```bash
+git add _targets.R data-raw/_targets_functions.R
+git commit -m "fix: adjustments from OSRM smoke test"
+```

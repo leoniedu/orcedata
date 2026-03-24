@@ -3,7 +3,7 @@ library(readxl)
 library(dplyr)
 sapply(dir(here::here("R"), full.names = TRUE), source)
 
-load("data/municipios_22.rda")
+load("data/municipios.rda")
 
 # bdo ---------------------------------------------------------------------
 # agencia.csv from BDO: CSV de Agências (versão 2 - UTF8)
@@ -11,7 +11,7 @@ agencias_bdo_0 <- readr::read_csv2(here::here("data-raw/bdo_agencias/agencia2026
   rename_ibge()%>%
   mutate(agencia_lat=as.numeric(lat), agencia_lon=as.numeric(lon), lat=NULL, lon=NULL,
          municipio_codigo=substr(agencia_codigo,1,7))%>%
-  left_join(municipios_22%>%sf::st_drop_geometry()%>%select(municipio_codigo, municipio_sede_lat, municipio_sede_lon), by = "municipio_codigo")%>%
+  left_join(municipios%>%sf::st_drop_geometry()%>%select(municipio_codigo, municipio_sede_lat, municipio_sede_lon), by = "municipio_codigo")%>%
   select(-municipio_codigo)%>%
   transmute(agencia_codigo, agencia_nome,
             agencia_lon=coalesce(agencia_lon, municipio_sede_lon),
@@ -23,13 +23,14 @@ agencias_bdo_0 <- readr::read_csv2(here::here("data-raw/bdo_agencias/agencia2026
 
 library(geobr)
 municipios_agencias <- sort(unique(substr(agencias_bdo_0$agencia_codigo,1,7)))
-mmaps <- geobr::read_municipality(code_muni = "all", year = 2022)
+mmaps <- geobr::read_municipality(code_muni = "all", year = 2024)
 agencias_bdo_sp <- sf::st_as_sf(agencias_bdo_0%>%filter(!is.na(agencia_lat)), coords=c("agencia_lon", "agencia_lat"), remove=FALSE, crs=sf::st_crs("EPSG:4674"))
 check_m <- agencias_bdo_sp%>%sf::st_join(mmaps, suffix=c(".x", ".y"))%>%
   filter(code_muni!=substr(agencia_codigo,1,7))%>%
   transmute(espacial=code_muni, bdo=substr(agencia_codigo,1,7), agencia_codigo, agencia_nome, municipio_espacial=name_muni)
 
 agencias_bdo <- agencias_bdo_0%>%
+  mutate(uf_codigo = substr(agencia_codigo, 1, 2))%>%
   sf::st_as_sf(coords=c('agencia_lon', "agencia_lat"), remove=FALSE, crs=sf::st_crs("EPSG:4674"))
 
 usethis::use_data(agencias_bdo, overwrite = TRUE)

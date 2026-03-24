@@ -5,7 +5,7 @@ source(here::here("R/calcula_distancias.R"))
 #source(here::here("R/add_coordinates.R"))
 load(here::here("data/agencias_bdo.rda"))
 load(here::here("data/pontos_setores.rda"))
-load(here::here("data/municipios_22.rda"))
+load(here::here("data/municipios.rda"))
 load("data/ufs.rda")
 
 calcula_distancias_setores_agencias <- function(uf_codigo_now) {
@@ -44,7 +44,7 @@ calcula_distancias_setores_agencias <- function(uf_codigo_now) {
     mutate(municipio_codigo=substr(upa,1,7))
 
 
-  distancias_amostra_toget_2 <- municipios_22%>%
+  distancias_amostra_toget_2 <- municipios%>%
     inner_join(amostra_uf%>%
                  ungroup%>%
                  distinct(upa)%>%
@@ -56,7 +56,7 @@ calcula_distancias_setores_agencias <- function(uf_codigo_now) {
       transmute(upa,ponto_origem, upa_lat=upa_cnefe_lat, upa_lon=upa_cnefe_lon),
     distancias_amostra_toget_2%>%
       ##FIX! Distancias até municipios quando nao sabemos onde é o setor
-      transmute(upa,ponto_origem="municipios_22", upa_lat=municipio_sede_lat,upa_lon=municipio_sede_lon)
+      transmute(upa,ponto_origem="municipios", upa_lat=municipio_sede_lat,upa_lon=municipio_sede_lon)
   )%>%
     ungroup%>%
     distinct()

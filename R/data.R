@@ -135,12 +135,12 @@
 #' @source Open Source Routing Machine (OSRM)
 "distancias_agencias_osrm"
 
-#' Brazilian Municipalities 2022 (Spatial)
+#' Brazilian Municipalities (Spatial)
 #'
-#' Spatial boundaries and metadata for Brazilian municipalities from the
-#' 2022 IBGE geographic base.
+#' Spatial data with municipal seat locations, names, and population
+#' estimates for all Brazilian municipalities.
 #'
-#' @format A `sf` data frame with 5,571 rows and 11 columns:
+#' @format A `sf` data frame with columns:
 #' \describe{
 #'   \item{municipio_codigo}{Municipality code (7 digits)}
 #'   \item{municipio_sede_lon}{Longitude of the municipal seat}
@@ -150,9 +150,10 @@
 #'   \item{uf_sigla}{State abbreviation}
 #'   \item{uf_nome}{State name}
 #'   \item{regiao_codigo}{Region code}
+#'   \item{municipio_populacao}{Estimated population (SIDRA table 6579)}
 #' }
-#' @source IBGE geographic base 2022
-"municipios_22"
+#' @source IBGE geographic base (geobr) and SIDRA population estimates
+"municipios"
 
 #' Municipality Administrative Codes
 #'
