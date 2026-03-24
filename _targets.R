@@ -91,33 +91,19 @@ list(
   # Phase 4: OSRM Distance Calculations
   tar_target(
     osrm_start,
-    make_osrm_start(
-      osm_pbf,
-      agencias_bdo,
-      agencias_mun,
-      municipios,
-      pontos_municipios
-    ),
+    make_osrm_start(osm_pbf, agencias_bdo, agencias_mun, municipios),
     cue = tar_cue(mode = "always")
   ),
   tar_target(
-    distancias_agencias_osrm,
-    make_distancias_agencias_osrm(agencias_bdo, osrm_start, ufs_filter)
-  ),
-  tar_target(
-    distancias_agencias_mun_osrm,
-    make_distancias_agencias_mun_osrm(
-      agencias_bdo,
-      agencias_mun,
-      municipios,
-      municipios_codigos,
-      osrm_start,
-      ufs_filter
+    distancias_osrm,
+    make_distancias_osrm(
+      agencias_bdo, agencias_mun, municipios, municipios_codigos,
+      osrm_start, ufs_filter
     )
   ),
   tar_target(
     osrm_stop,
-    make_osrm_stop(distancias_agencias_osrm, distancias_agencias_mun_osrm),
+    make_osrm_stop(distancias_osrm),
     cue = tar_cue(mode = "always")
   )
 )

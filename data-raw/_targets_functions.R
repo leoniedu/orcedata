@@ -417,32 +417,54 @@ make_osrm_stop <- function(...) {
   Sys.time()
 }
 
-make_distancias_agencias_osrm <- function(agencias_bdo, osrm_start, ufs_filter) {
+make_distancias_osrm <- function(agencias_bdo, agencias_mun,
+                                  municipios, municipios_codigos,
+                                  osrm_start, ufs_filter) {
   ufs <- if (is.null(ufs_filter)) {
     unique(agencias_bdo$uf_codigo)
   } else {
     ufs_filter
   }
 
-  distancias_list <- vector(mode = "list", length = length(ufs))
-  names(distancias_list) <- ufs
+  ag_ag_list <- vector(mode = "list", length = length(ufs))
+  ag_mun_list <- vector(mode = "list", length = length(ufs))
+  names(ag_ag_list) <- names(ag_mun_list) <- ufs
 
   for (uf in ufs) {
-    cli::cli_inform("Processing inter-agency distances for UF {uf}...")
+    cli::cli_inform("Processing distances for UF {uf}...")
     ag_uf <- agencias_bdo |> dplyr::filter(uf_codigo == uf)
-    res <- get_distancias_osrm(src = ag_uf, completar = TRUE)
-    distancias_list[[uf]] <- res |>
+    mun_uf <- municipios |> dplyr::filter(substr(municipio_codigo, 1, 2) == uf)
+
+    # Combine agencies + municipalities into a single sf for a richer graph
+    combined <- dplyr::bind_rows(
+      ag_uf |> dplyr::transmute(id = agencia_codigo, tipo = "agencia"),
+      mun_uf |> dplyr::transmute(id = municipio_codigo, tipo = "municipio")
+    )
+
+    res <- get_distancias_osrm(src = combined, completar = TRUE)
+
+    # Split: agency-to-agency pairs
+    ag_ag_list[[uf]] <- res |>
+      dplyr::filter(tipo_orig == "agencia", tipo_dest == "agencia") |>
       dplyr::select(
-        agencia_codigo_orig,
-        agencia_codigo_dest,
-        distancia_km,
-        duracao_horas,
-        snap_km_orig,
-        snap_km_dest
+        agencia_codigo_orig = id_orig,
+        agencia_codigo_dest = id_dest,
+        distancia_km, duracao_horas,
+        snap_km_orig, snap_km_dest
+      )
+
+    # Split: agency-to-municipality pairs
+    ag_mun_list[[uf]] <- res |>
+      dplyr::filter(tipo_orig == "agencia", tipo_dest == "municipio") |>
+      dplyr::select(
+        agencia_codigo = id_orig,
+        municipio_codigo = id_dest,
+        distancia_km, duracao_horas
       )
   }
 
-  distancias_agencias_osrm <- dplyr::bind_rows(distancias_list)
+  # --- Agency-to-agency distances ---
+  distancias_agencias_osrm <- dplyr::bind_rows(ag_ag_list)
 
   stopifnot(
     nrow(
@@ -452,37 +474,8 @@ make_distancias_agencias_osrm <- function(agencias_bdo, osrm_start, ufs_filter) 
     ) == 0
   )
 
-  usethis::use_data(distancias_agencias_osrm, overwrite = TRUE)
-  distancias_agencias_osrm
-}
-
-make_distancias_agencias_mun_osrm <- function(agencias_bdo, agencias_mun,
-                                               municipios, municipios_codigos,
-                                               osrm_start, ufs_filter) {
-  ufs <- if (is.null(ufs_filter)) {
-    unique(agencias_bdo$uf_codigo)
-  } else {
-    ufs_filter
-  }
-
-  distancias_list <- vector(mode = "list", length = length(ufs))
-  names(distancias_list) <- ufs
-
-  for (uf in ufs) {
-    cli::cli_inform("Processing agency-municipality distances for UF {uf}...")
-    ag_uf <- agencias_bdo |> dplyr::filter(uf_codigo == uf)
-    mun_uf <- municipios |> dplyr::filter(substr(municipio_codigo, 1, 2) == uf)
-    res <- get_distancias_osrm(src = ag_uf, dst = mun_uf, completar = TRUE)
-    distancias_list[[uf]] <- res |>
-      dplyr::select(
-        agencia_codigo = agencia_codigo_orig,
-        municipio_codigo = municipio_codigo_dest,
-        distancia_km,
-        duracao_horas
-      )
-  }
-
-  distancias_agencias_municipios_osrm <- dplyr::bind_rows(distancias_list)
+  # --- Agency-to-municipality distances ---
+  distancias_agencias_municipios_osrm <- dplyr::bind_rows(ag_mun_list)
 
   stopifnot(
     nrow(
@@ -579,10 +572,11 @@ make_distancias_agencias_mun_osrm <- function(agencias_bdo, agencias_mun,
       by = c("agencia_codigo", "municipio_codigo")
     )
 
+  usethis::use_data(distancias_agencias_osrm, overwrite = TRUE)
   usethis::use_data(distancias_agencias_municipios_osrm, overwrite = TRUE)
   usethis::use_data(agencias_municipios_diaria, overwrite = TRUE)
   usethis::use_data(distancias_agencias_municipios_diaria, overwrite = TRUE)
 
-  # Return the primary dataset for dependency tracking
-  distancias_agencias_municipios_osrm
+  # Return sentinel for dependency tracking
+  Sys.time()
 }
