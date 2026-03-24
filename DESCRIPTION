@@ -23,9 +23,21 @@ Imports:
     sf,
     tidyselect
 Suggests:
+    arrow,
+    censobr,
+    cnefetools,
+    furrr,
+    geobr,
+    here,
     httr2,
     igraph,
     osrm.backend,
-    testthat (>= 3.0.0)
+    readr,
+    readxl,
+    sidrar,
+    targets,
+    testthat (>= 3.0.0),
+    tidyr,
+    usethis
 Config/testthat/edition: 3
 Config/Needs/website: rmarkdown
