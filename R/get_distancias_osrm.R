@@ -84,32 +84,35 @@ get_distancias_osrm <- function(src, dst = NULL,
 
   for (i in seq_along(chunks)) {
     idx <- chunks[[i]]
-    chunk_result <- tryCatch({
-      r <- osrm_table(
+    r <- tryCatch(
+      osrm_table(
         src_coords = src_coords[idx, , drop = FALSE],
         dst_coords = if (symmetric) NULL else dst_coords
-      )
+      ),
+      error = function(e) NULL
+    )
 
+    if (!is.null(r)) {
       # Collect dst snap info from first successful chunk
       # (destinations are the same across all chunks)
       if (is.null(snap_km_dst)) {
-        snap_km_dst <<- r$dst_snap_m / 1000
-        snapped_dst_coords <<- r$dst_snapped
+        snap_km_dst <- r$dst_snap_m / 1000
+        snapped_dst_coords <- r$dst_snapped
       }
 
       # Accumulate src snap info for this chunk
-      snap_km_src[idx] <<- r$src_snap_m / 1000
-      snapped_src_coords[idx, ] <<- r$src_snapped
+      snap_km_src[idx] <- r$src_snap_m / 1000
+      snapped_src_coords[idx, ] <- r$src_snapped
 
-      data.frame(
+      results[[i]] <- data.frame(
         .id_dest = rep(dst_1$.id_dest, each = length(idx)),
         .id_orig = rep(src_1$.id_orig[idx], times = nrow(dst_1)),
         road_km = round(as.vector(r$distances) / 1000, 2),
         road_hours = round(as.vector(r$durations) / 3600, 2)
       )
-    }, error = function(e) NULL)
-    results[[i]] <- chunk_result
-    if (is.null(chunk_result)) n_failed <- n_failed + 1L
+    } else {
+      n_failed <- n_failed + 1L
+    }
     cli::cli_progress_update()
   }
 

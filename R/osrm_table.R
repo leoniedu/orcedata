@@ -64,9 +64,24 @@ osrm_table <- function(src_coords, dst_coords = NULL, server = NULL) {
     )
   }
 
-  resp <- httr2::request(url) |>
-    httr2::req_url_query(!!!query) |>
-    httr2::req_perform()
+  req <- httr2::request(url) |>
+    httr2::req_url_query(!!!query)
+
+  # Retry on connection errors (server may still be starting)
+  resp <- NULL
+  for (attempt in seq_len(10L)) {
+    resp <- tryCatch(
+      httr2::req_perform(req),
+      error = function(e) {
+        if (attempt < 10L) Sys.sleep(1)
+        NULL
+      }
+    )
+    if (!is.null(resp)) break
+  }
+  if (is.null(resp)) {
+    cli::cli_abort("Could not connect to OSRM server at {.url {server}} after 10 attempts.")
+  }
 
   body <- httr2::resp_body_json(resp)
 
