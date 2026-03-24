@@ -66,6 +66,23 @@ osrm_local_start <- function(region_pbf,
   servers <- osrm.backend::osrm_servers()
   server_url <- paste0("http://localhost:", servers$port[1], "/")
   options(osrm.server = server_url)
+
+  # Wait until server is actually accepting connections
+  ready <- FALSE
+  for (i in seq_len(30L)) {
+    ready <- tryCatch({
+      con <- socketConnection("127.0.0.1", servers$port[1], open = "r",
+                              blocking = TRUE, timeout = 1)
+      close(con)
+      TRUE
+    }, error = function(e) FALSE)
+    if (ready) break
+    Sys.sleep(1)
+  }
+  if (!ready) {
+    cli::cli_warn("OSRM server started but not responding after 30 seconds.")
+  }
+
   cli::cli_inform("OSRM server running at {.url {server_url}}")
 
   invisible(server_url)
