@@ -450,7 +450,8 @@ make_distancias_osrm <- function(agencias_bdo, agencias_mun,
         agencia_codigo_orig = id_orig,
         agencia_codigo_dest = id_dest,
         distancia_km, duracao_horas,
-        snap_km_orig, snap_km_dest
+        snap_km_orig, snap_km_dest,
+        metodo
       )
 
     # Split: agency-to-municipality pairs
@@ -459,7 +460,8 @@ make_distancias_osrm <- function(agencias_bdo, agencias_mun,
       dplyr::select(
         agencia_codigo = id_orig,
         municipio_codigo = id_dest,
-        distancia_km, duracao_horas
+        distancia_km, duracao_horas,
+        metodo
       )
   }
 

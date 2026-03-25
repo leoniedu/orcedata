@@ -5,12 +5,16 @@
 \alias{distancias_agencias_osrm}
 \title{Inter-Agency Road Distances (OSRM)}
 \format{
-A data frame with 24,316 rows and 4 columns:
+A data frame with 24,316 rows and 7 columns:
 \describe{
 \item{agencia_codigo_orig}{Origin agency code}
 \item{agencia_codigo_dest}{Destination agency code}
 \item{distancia_km}{Road distance in kilometers}
 \item{duracao_horas}{Travel duration in hours}
+\item{snap_km_orig}{Snap distance for origin (km from input to nearest road)}
+\item{snap_km_dest}{Snap distance for destination (km from input to nearest road)}
+\item{metodo}{Calculation method: \code{"osrm"} (road-routed), \code{"grafo"}
+(augmented graph), or \code{"euclidiano"} (Euclidean fallback)}
 }
 }
 \source{

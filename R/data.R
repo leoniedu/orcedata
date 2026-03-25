@@ -110,12 +110,14 @@
 #' Road distances and travel durations between all IBGE agencies and
 #' Brazilian municipalities, calculated via OSRM routing.
 #'
-#' @format A data frame with 222,187 rows and 4 columns:
+#' @format A data frame with 222,187 rows and 5 columns:
 #' \describe{
 #'   \item{agencia_codigo}{Agency code}
 #'   \item{municipio_codigo}{Municipality code}
 #'   \item{distancia_km}{Road distance in kilometers}
 #'   \item{duracao_horas}{Travel duration in hours}
+#'   \item{metodo}{Calculation method: `"osrm"` (road-routed), `"grafo"`
+#'     (augmented graph), or `"euclidiano"` (Euclidean fallback)}
 #' }
 #' @source Open Source Routing Machine (OSRM)
 "distancias_agencias_municipios_osrm"
@@ -125,12 +127,16 @@
 #' Road distances and travel durations between pairs of IBGE agencies,
 #' calculated via OSRM routing.
 #'
-#' @format A data frame with 24,316 rows and 4 columns:
+#' @format A data frame with 24,316 rows and 7 columns:
 #' \describe{
 #'   \item{agencia_codigo_orig}{Origin agency code}
 #'   \item{agencia_codigo_dest}{Destination agency code}
 #'   \item{distancia_km}{Road distance in kilometers}
 #'   \item{duracao_horas}{Travel duration in hours}
+#'   \item{snap_km_orig}{Snap distance for origin (km from input to nearest road)}
+#'   \item{snap_km_dest}{Snap distance for destination (km from input to nearest road)}
+#'   \item{metodo}{Calculation method: `"osrm"` (road-routed), `"grafo"`
+#'     (augmented graph), or `"euclidiano"` (Euclidean fallback)}
 #' }
 #' @source Open Source Routing Machine (OSRM)
 "distancias_agencias_osrm"

@@ -5,12 +5,14 @@
 \alias{distancias_agencias_municipios_osrm}
 \title{Agency–Municipality Road Distances (OSRM)}
 \format{
-A data frame with 222,187 rows and 4 columns:
+A data frame with 222,187 rows and 5 columns:
 \describe{
 \item{agencia_codigo}{Agency code}
 \item{municipio_codigo}{Municipality code}
 \item{distancia_km}{Road distance in kilometers}
 \item{duracao_horas}{Travel duration in hours}
+\item{metodo}{Calculation method: \code{"osrm"} (road-routed), \code{"grafo"}
+(augmented graph), or \code{"euclidiano"} (Euclidean fallback)}
 }
 }
 \source{
