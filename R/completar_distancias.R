@@ -163,8 +163,11 @@ completar_distancias <- function(dist_df, src, dst = NULL,
     s <- na_src_ids[k]
     d <- na_dst_ids[k]
     dur <- sp_matrix[s, d]
+    eucl_h <- na_eucl_km[k] / kmh_snap
 
     if (is.finite(dur)) {
+      # Cap at Euclidean duration — straight-line walk is always available
+      dur <- min(dur, eucl_h)
       dist_df$duracao_horas[i] <- round(dur, 4)
       dist_df$distancia_km[i] <- round(na_eucl_km[k], 2)
       dist_df$metodo[i] <- "grafo"

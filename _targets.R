@@ -10,7 +10,7 @@
 library(targets)
 
 # --- Configuration -----------------------------------------------------------
-ufs_filter <- 11 # NULL = all 27 UFs; e.g. c("29","28") for testing
+ufs_filter <- NULL # NULL = all 27 UFs; e.g. c("29","28") for testing
 
 # Data years — changing any of these invalidates dependent targets
 ano_ufs <- 2020 # geobr::read_state()
@@ -97,13 +97,44 @@ list(
   tar_target(
     distancias_osrm,
     make_distancias_osrm(
-      agencias_bdo, agencias_mun, municipios, municipios_codigos,
-      osrm_start, ufs_filter
+      agencias_bdo,
+      agencias_mun,
+      municipios,
+      municipios_codigos,
+      osrm_start,
+      ufs_filter
     )
   ),
   tar_target(
     osrm_stop,
     make_osrm_stop(distancias_osrm),
+    cue = tar_cue(mode = "always")
+  ),
+
+  # Pipeline metadata — records parameters and run info
+  tar_target(
+    pipeline_metadata,
+    make_pipeline_metadata(
+      osrm_stop = osrm_stop,
+      ufs_filter = ufs_filter,
+      ano_ufs = ano_ufs,
+      ano_setores = ano_setores,
+      ano_municipios = ano_municipios,
+      ano_sedes = ano_sedes,
+      ano_cnefe = ano_cnefe,
+      ano_censo_tracts = ano_censo_tracts,
+      ano_populacao = ano_populacao,
+      ano_rm = ano_rm,
+      bdo_agencias_csv = bdo_agencias_csv,
+      bdo_grid_csv = bdo_grid_csv,
+      osm_pbf = osm_pbf
+    )
+  ),
+
+  # Document and install the package
+  tar_target(
+    install,
+    make_install(pipeline_metadata),
     cue = tar_cue(mode = "always")
   )
 )

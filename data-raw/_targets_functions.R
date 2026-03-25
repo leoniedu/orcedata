@@ -580,3 +580,57 @@ make_distancias_osrm <- function(agencias_bdo, agencias_mun,
   # Return sentinel for dependency tracking
   Sys.time()
 }
+
+# --- Pipeline Metadata -------------------------------------------------------
+
+make_pipeline_metadata <- function(osrm_stop = NULL, ...) {
+  params <- list(...)
+  pipeline_metadata <- tibble::tibble(
+    parametro = names(params),
+    valor = vapply(params, function(x) {
+      if (is.null(x)) "NULL" else paste(x, collapse = ", ")
+    }, character(1))
+  )
+
+  # Compute execution time from targets metadata if available
+  duracao <- tryCatch({
+    meta <- targets::tar_meta()
+    t_start <- min(meta$time, na.rm = TRUE)
+    t_end <- max(meta$time, na.rm = TRUE)
+    n_erros <- sum(meta$error != "" & !is.na(meta$error))
+    list(
+      inicio = format(t_start, "%Y-%m-%d %H:%M:%S"),
+      fim = format(t_end, "%Y-%m-%d %H:%M:%S"),
+      duracao_min = round(as.numeric(difftime(t_end, t_start, units = "mins")), 1),
+      erros = n_erros
+    )
+  }, error = function(e) NULL)
+
+  run_info <- tibble::tibble(
+    parametro = c("gerado_em", "orcedata_versao", "R_versao", "status"),
+    valor = c(
+      format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+      as.character(utils::packageVersion("orcedata")),
+      paste(R.version$major, R.version$minor, sep = "."),
+      "completo"
+    )
+  )
+
+  if (!is.null(duracao)) {
+    run_info <- dplyr::bind_rows(run_info, tibble::tibble(
+      parametro = c("pipeline_inicio", "pipeline_fim", "duracao_minutos", "erros"),
+      valor = c(duracao$inicio, duracao$fim, as.character(duracao$duracao_min),
+                as.character(duracao$erros))
+    ))
+  }
+
+  pipeline_metadata <- dplyr::bind_rows(pipeline_metadata, run_info)
+  usethis::use_data(pipeline_metadata, overwrite = TRUE)
+  pipeline_metadata
+}
+
+make_install <- function(...) {
+  devtools::document()
+  devtools::install(upgrade = "never", quick = TRUE)
+  Sys.time()
+}
