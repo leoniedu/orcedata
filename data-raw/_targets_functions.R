@@ -265,7 +265,8 @@ make_municipios <- function(pontos_municipios, municipios_geo, pop, ano_sedes) {
   municipios
 }
 
-make_agencias_bdo <- function(municipios, bdo_agencias_file) {
+make_agencias_bdo <- function(municipios, bdo_agencias_file,
+                              agencias_excluir = NULL) {
   agencias_bdo_0 <- readr::read_csv2(
     bdo_agencias_file,
     col_types = "cccccc"
@@ -300,6 +301,12 @@ make_agencias_bdo <- function(municipios, bdo_agencias_file) {
     ))
   }
 
+  # Remove excluded agencies (e.g. inactive ones)
+  if (!is.null(agencias_excluir)) {
+    agencias_bdo_0 <- agencias_bdo_0 |>
+      dplyr::filter(!agencia_codigo %in% agencias_excluir)
+  }
+
   agencias_bdo <- agencias_bdo_0 |>
     dplyr::mutate(uf_codigo = substr(agencia_codigo, 1, 2)) |>
     sf::st_as_sf(
@@ -328,10 +335,6 @@ make_agencias_bdo_mun <- function(agencias_bdo, pontos_municipios, bdo_grid_file
         dplyr::select(-agencia_lat, -agencia_lon),
       by = "agencia_codigo"
     )
-
-  # Remove known invalid agency (CIPÓ)
-  agencias_bdo_mun <- agencias_bdo_mun |>
-    dplyr::filter(agencia_codigo != "290790500")
 
   stopifnot(
     nrow(agencias_bdo_mun |> dplyr::anti_join(pontos_municipios, by = "municipio_codigo")) == 0

@@ -25,6 +25,7 @@ ano_rm <- 2024 # Composição RM (IBGE geoftp)
 # BDO source files
 bdo_agencias_csv <- "data-raw/bdo_agencias/agencia20260210.csv"
 bdo_grid_csv <- "data-raw/bdo_agencias/grid-export_20260210.csv"
+agencias_excluir <- c("290790500") # inactive agencies (e.g. CIPÓ)
 
 # Cache management
 limpar_cache <- TRUE # TRUE = delete downloaded caches after processing each UF
@@ -73,7 +74,7 @@ list(
   tar_target(bdo_grid_file, bdo_grid_csv, format = "file"),
   tar_target(
     agencias_bdo,
-    make_agencias_bdo(municipios, bdo_agencias_file)
+    make_agencias_bdo(municipios, bdo_agencias_file, agencias_excluir)
   ),
   tar_target(
     agencias_bdo_mun,
